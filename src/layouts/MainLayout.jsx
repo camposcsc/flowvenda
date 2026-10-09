@@ -9,6 +9,7 @@ function MainLayout() {
     { path: '/clientes', label: 'Clientes' },
     { path: '/produtos', label: 'Produtos e serviços' },
     { path: '/relatorios', label: 'Relatórios' },
+    { path: '/configuracoes', label: 'Configurações' },
   ]
 
   return (

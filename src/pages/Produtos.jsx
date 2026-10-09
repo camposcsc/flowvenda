@@ -11,6 +11,7 @@ function Produtos() {
   const [modalAberto, setModalAberto] = useState(false)
   const [nome, setNome] = useState('')
   const [categoria, setCategoria] = useState('Produto')
+  const [grupo, setGrupo] = useState('Suíno')
   const [preco, setPreco] = useState('')
   const [estoque, setEstoque] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -75,6 +76,7 @@ function Produtos() {
       {
         nome,
         categoria,
+        grupo: categoria === 'Produto' ? grupo : null,
         preco: Number(preco) || 0,
         estoque: categoria === 'Serviço' ? 0 : Number(estoque) || 0,
       },
@@ -96,6 +98,7 @@ function Produtos() {
     setModalAberto(false)
     setNome('')
     setCategoria('Produto')
+    setGrupo('Suíno')
     setPreco('')
     setEstoque('')
   }
@@ -163,6 +166,7 @@ function Produtos() {
               <tr className="bg-gray-50 text-left text-gray-500">
                 <th className="px-5 py-3 font-medium">Nome</th>
                 <th className="px-5 py-3 font-medium">Categoria</th>
+                <th className="px-5 py-3 font-medium">Grupo</th>
                 <th className="px-5 py-3 font-medium">Preço</th>
                 <th className="px-5 py-3 font-medium">Estoque</th>
                 <th className="px-5 py-3 font-medium">Status</th>
@@ -175,6 +179,7 @@ function Produtos() {
                   <tr key={produto.id} className="border-t border-gray-100 hover:bg-gray-50">
                     <td className="px-5 py-4 font-medium text-gray-800">{produto.nome}</td>
                     <td className="px-5 py-4 text-gray-600">{produto.categoria}</td>
+                    <td className="px-5 py-4 text-gray-600">{produto.grupo || '—'}</td>
                     <td className="px-5 py-4 text-gray-800 font-medium">
                       {formatarPreco(produto.preco)}
                     </td>
@@ -218,6 +223,21 @@ function Produtos() {
               <option>Produto</option>
               <option>Serviço</option>
             </select>
+
+            {categoria === 'Produto' && (
+              <>
+                <label className="text-sm text-gray-600 mb-1 block">Grupo</label>
+                <select
+                  value={grupo}
+                  onChange={(e) => setGrupo(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-4 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option>Suíno</option>
+                  <option>Bovino</option>
+                  <option>Ave</option>
+                </select>
+              </>
+            )}
 
             <label className="text-sm text-gray-600 mb-1 block">Preço (R$)</label>
             <input

@@ -1,30 +1,71 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../supabaseClient'
+import * as XLSX from 'xlsx'
 
 function Relatorios() {
-  // Lista de vendas de exemplo (depois isso virá do banco de dados real)
-  const vendasDetalhadas = [
-    { cliente: 'Ana Souza', grupo: 'Suíno', produto: 'Carne suína', data: '2026-05-10', valor: 4200 },
-    { cliente: 'Ana Souza', grupo: 'Bovino', produto: 'Carne bovina', data: '2026-06-14', valor: 6800 },
-    { cliente: 'Ana Souza', grupo: 'Ave', produto: 'Frango', data: '2026-07-20', valor: 3100 },
-    { cliente: 'Carlos Lima', grupo: 'Suíno', produto: 'Carne suína', data: '2026-05-18', valor: 5200 },
-    { cliente: 'Carlos Lima', grupo: 'Ave', produto: 'Frango', data: '2026-08-05', valor: 7200 },
-    { cliente: 'Carlos Lima', grupo: 'Bovino', produto: 'Carne bovina', data: '2026-09-02', valor: 9100 },
-    { cliente: 'Beatriz Alves', grupo: 'Bovino', produto: 'Carne bovina', data: '2026-06-22', valor: 8800 },
-    { cliente: 'Beatriz Alves', grupo: 'Suíno', produto: 'Linguiça suína', data: '2026-07-11', valor: 4100 },
-    { cliente: 'Beatriz Alves', grupo: 'Ave', produto: 'Frango', data: '2026-09-15', valor: 6200 },
-    { cliente: 'João Pedro', grupo: 'Ave', produto: 'Frango', data: '2026-08-28', valor: 3900 },
-    { cliente: 'João Pedro', grupo: 'Suíno', produto: 'Carne suína', data: '2026-09-09', valor: 5400 },
-    { cliente: 'Fernanda Dias', grupo: 'Bovino', produto: 'Carne bovina', data: '2026-05-30', valor: 7600 },
-    { cliente: 'Fernanda Dias', grupo: 'Ave', produto: 'Frango', data: '2026-06-19', valor: 4800 },
-  ]
+  const [pedidos, setPedidos] = useState([])
+  const [clientesLista, setClientesLista] = useState([])
+  const [produtosLista, setProdutosLista] = useState([])
+  const [carregando, setCarregando] = useState(true)
 
   const [clienteSelecionado, setClienteSelecionado] = useState('Todos')
   const [grupoSelecionado, setGrupoSelecionado] = useState('Todos')
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
 
-  const clientes = ['Todos', ...new Set(vendasDetalhadas.map((v) => v.cliente))]
-  const grupos = ['Todos', ...new Set(vendasDetalhadas.map((v) => v.grupo))]
+  useEffect(() => {
+    buscarDados()
+  }, [])
+
+  async function buscarDados() {
+    setCarregando(true)
+
+    const { data: pedidosData, error: erroPedidos } = await supabase
+      .from('pedidos')
+      .select('*')
+      .eq('status', 'Concluído')
+
+    const { data: clientesData, error: erroClientes } = await supabase
+      .from('clientes')
+      .select('*')
+
+    const { data: produtosData, error: erroProdutos } = await supabase
+      .from('produtos')
+      .select('*')
+
+    if (erroPedidos) console.log('Erro ao buscar pedidos:', erroPedidos)
+    if (erroClientes) console.log('Erro ao buscar clientes:', erroClientes)
+    if (erroProdutos) console.log('Erro ao buscar produtos:', erroProdutos)
+
+    setPedidos(pedidosData || [])
+    setClientesLista(clientesData || [])
+    setProdutosLista(produtosData || [])
+    setCarregando(false)
+  }
+
+  // Monta a lista "achatada" de vendas: cada item de cada pedido concluído vira uma linha
+  const vendasDetalhadas = []
+  pedidos.forEach((pedido) => {
+    const dataPedido = (pedido.created_at || '').split('T')[0] // yyyy-mm-dd
+    ;(pedido.itens || []).forEach((item) => {
+      const produtoInfo = produtosLista.find((p) => p.nome === item.produto)
+      const preco = produtoInfo?.preco || 0
+      const grupo = produtoInfo?.grupo || 'Sem grupo'
+      const valor = Number(item.quantidade || 0) * Number(preco)
+
+      vendasDetalhadas.push({
+        cliente: pedido.cliente,
+        grupo,
+        produto: item.produto,
+        quantidade: Number(item.quantidade || 0),
+        data: dataPedido,
+        valor,
+      })
+    })
+  })
+
+  const clientes = ['Todos', ...new Set(clientesLista.map((c) => c.nome))]
+  const grupos = ['Todos', ...new Set(produtosLista.map((p) => p.grupo).filter(Boolean))]
 
   // Aplica todos os filtros
   const vendasFiltradas = vendasDetalhadas.filter((v) => {
@@ -57,7 +98,7 @@ function Relatorios() {
   const vendasPorMesMap = {}
   vendasFiltradas.forEach((v) => {
     const mesNum = v.data.split('-')[1]
-    const nomeMes = mesesNomes[mesNum]
+    const nomeMes = mesesNomes[mesNum] || '—'
     vendasPorMesMap[nomeMes] = (vendasPorMesMap[nomeMes] || 0) + v.valor
   })
   const vendasPorMes = Object.entries(vendasPorMesMap).map(([mes, total]) => ({ mes, total }))
@@ -80,19 +121,84 @@ function Relatorios() {
     window.print()
   }
 
+  function exportarExcel() {
+    if (vendasFiltradas.length === 0) {
+      alert('Não há dados para exportar com esse filtro.')
+      return
+    }
+
+    // Monta as linhas da planilha de detalhamento
+    const linhas = vendasFiltradas.map((v) => ({
+      'Data': formatarDataBR(v.data),
+      'Cliente': v.cliente,
+      'Grupo': v.grupo,
+      'Produto': v.produto,
+      'Quantidade (kg)': v.quantidade,
+      'Valor (R$)': v.valor,
+    }))
+
+    // Linha de total no final
+    linhas.push({
+      'Data': '',
+      'Cliente': '',
+      'Grupo': '',
+      'Produto': 'TOTAL',
+      'Quantidade (kg)': '',
+      'Valor (R$)': faturamentoTotal,
+    })
+
+    const planilhaVendas = XLSX.utils.json_to_sheet(linhas)
+
+    // Segunda aba: resumo por produto
+    const linhasResumo = Object.values(produtosAgrupados)
+      .sort((a, b) => b.total - a.total)
+      .map((p) => ({
+        'Produto': p.nome,
+        'Quantidade de vendas': p.vendas,
+        'Total (R$)': p.total,
+      }))
+    const planilhaResumo = XLSX.utils.json_to_sheet(linhasResumo)
+
+    const livro = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(livro, planilhaVendas, 'Detalhamento')
+    XLSX.utils.book_append_sheet(livro, planilhaResumo, 'Produtos mais vendidos')
+
+    const dataHoje = new Date().toISOString().split('T')[0]
+    XLSX.writeFile(livro, `relatorio-flowvenda-${dataHoje}.xlsx`)
+  }
+
+  if (carregando) {
+    return <p className="p-6 text-gray-500">Carregando relatórios...</p>
+  }
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6 print:hidden">
         <h1 className="text-2xl font-bold text-gray-800">Relatórios</h1>
-        <button
-          onClick={imprimirRelatorio}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-        >
-          🖨️ Imprimir
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={exportarExcel}
+            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            📊 Exportar Excel
+          </button>
+          <button
+            onClick={imprimirRelatorio}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            🖨️ Imprimir
+          </button>
+        </div>
       </div>
 
       <h1 className="hidden print:block text-2xl font-bold text-gray-800 mb-6">Relatórios</h1>
+
+      {vendasDetalhadas.length === 0 && (
+        <p className="bg-yellow-50 text-yellow-700 p-3 rounded-lg mb-4 text-sm print:hidden">
+          Nenhuma venda encontrada ainda. Os relatórios consideram apenas pedidos com status
+          "Concluído" (com nota fiscal lançada).
+        </p>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-3 mb-6 print:hidden">
