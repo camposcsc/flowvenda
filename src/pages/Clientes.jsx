@@ -1,13 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../supabaseClient'
 
 function Clientes() {
-  const [clientes, setClientes] = useState([
-    { id: 1, nome: 'Ana Souza', email: 'ana.souza@email.com', telefone: '(11) 98765-4321', pedidos: 12, status: 'Ativo' },
-    { id: 2, nome: 'Carlos Lima', email: 'carlos.lima@email.com', telefone: '(11) 91234-5678', pedidos: 8, status: 'Ativo' },
-    { id: 3, nome: 'Beatriz Alves', email: 'beatriz.alves@email.com', telefone: '(21) 99876-5432', pedidos: 5, status: 'Inativo' },
-    { id: 4, nome: 'João Pedro', email: 'joao.pedro@email.com', telefone: '(31) 98888-1234', pedidos: 3, status: 'Ativo' },
-    { id: 5, nome: 'Fernanda Dias', email: 'fernanda.dias@email.com', telefone: '(41) 97777-4321', pedidos: 15, status: 'Ativo' },
-  ])
+  const [clientes, setClientes] = useState([])
+  const [carregando, setCarregando] = useState(true)
 
   const [busca, setBusca] = useState('')
   const [modalAberto, setModalAberto] = useState(false)
@@ -20,14 +16,35 @@ function Clientes() {
 
   const [buscandoCnpj, setBuscandoCnpj] = useState(false)
   const [erroCnpj, setErroCnpj] = useState('')
+  const [salvando, setSalvando] = useState(false)
+
+  useEffect(() => {
+    buscarClientes()
+  }, [])
+
+  async function buscarClientes() {
+    setCarregando(true)
+    const { data, error } = await supabase
+      .from('clientes')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.log('Erro ao buscar clientes:', error)
+      alert('Erro ao carregar clientes. Veja o console para detalhes.')
+    } else {
+      setClientes(data)
+    }
+    setCarregando(false)
+  }
 
   const totalClientes = clientes.length
   const clientesAtivos = clientes.filter((c) => c.status === 'Ativo').length
 
   const clientesFiltrados = clientes.filter(
     (c) =>
-      c.nome.toLowerCase().includes(busca.toLowerCase()) ||
-      c.email.toLowerCase().includes(busca.toLowerCase())
+      (c.nome || '').toLowerCase().includes(busca.toLowerCase()) ||
+      (c.email || '').toLowerCase().includes(busca.toLowerCase())
   )
 
   function formatarTelefone(ddd, numero) {
@@ -110,22 +127,34 @@ function Clientes() {
     }
   }
 
-  function salvarCliente() {
+  async function salvarCliente() {
     if (!nome.trim()) {
       alert('Informe o nome do cliente.')
       return
     }
 
-    const novoCliente = {
-      id: Date.now(),
-      nome,
-      email: email || '-',
-      telefone: telefone || '-',
-      pedidos: 0,
-      status: 'Ativo',
+    setSalvando(true)
+
+    const { error } = await supabase.from('clientes').insert([
+      {
+        nome,
+        email: email || '-',
+        telefone: telefone || '-',
+        cnpj: cnpj || '-',
+        endereco: endereco || '-',
+        status: 'Ativo',
+      },
+    ])
+
+    setSalvando(false)
+
+    if (error) {
+      console.log('Erro ao salvar cliente:', error)
+      alert('Erro ao salvar cliente. Veja o console para detalhes.')
+      return
     }
 
-    setClientes((prev) => [novoCliente, ...prev])
+    await buscarClientes()
     fecharModal()
   }
 
@@ -175,38 +204,40 @@ function Clientes() {
       />
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500 border-b border-gray-100">
-              <th className="px-6 py-3 font-medium">Nome</th>
-              <th className="px-6 py-3 font-medium">E-mail</th>
-              <th className="px-6 py-3 font-medium">Telefone</th>
-              <th className="px-6 py-3 font-medium">Pedidos</th>
-              <th className="px-6 py-3 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {clientesFiltrados.map((c) => (
-              <tr key={c.id} className="border-b border-gray-50 last:border-0">
-                <td className="px-6 py-4 font-medium text-gray-800">{c.nome}</td>
-                <td className="px-6 py-4 text-gray-600">{c.email}</td>
-                <td className="px-6 py-4 text-gray-600">{c.telefone}</td>
-                <td className="px-6 py-4 text-gray-600">{c.pedidos}</td>
-                <td className="px-6 py-4">
-                  <span
-                    className={`text-xs font-medium px-3 py-1 rounded-full ${
-                      c.status === 'Ativo'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    {c.status}
-                  </span>
-                </td>
+        {carregando ? (
+          <p className="p-6 text-gray-500 text-sm">Carregando clientes...</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-500 border-b border-gray-100">
+                <th className="px-6 py-3 font-medium">Nome</th>
+                <th className="px-6 py-3 font-medium">E-mail</th>
+                <th className="px-6 py-3 font-medium">Telefone</th>
+                <th className="px-6 py-3 font-medium">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {clientesFiltrados.map((c) => (
+                <tr key={c.id} className="border-b border-gray-50 last:border-0">
+                  <td className="px-6 py-4 font-medium text-gray-800">{c.nome}</td>
+                  <td className="px-6 py-4 text-gray-600">{c.email}</td>
+                  <td className="px-6 py-4 text-gray-600">{c.telefone}</td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`text-xs font-medium px-3 py-1 rounded-full ${
+                        c.status === 'Ativo'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {modalAberto && (
@@ -279,9 +310,10 @@ function Clientes() {
               </button>
               <button
                 onClick={salvarCliente}
-                className="px-4 py-2 text-sm text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
+                disabled={salvando}
+                className="px-4 py-2 text-sm text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
               >
-                Salvar cliente
+                {salvando ? 'Salvando...' : 'Salvar cliente'}
               </button>
             </div>
           </div>
