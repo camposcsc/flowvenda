@@ -23,111 +23,95 @@ function Dashboard() {
     setCarregando(false)
   }
 
-  const precoPorProduto = useMemo(() => {
-    const mapa = {}
-    produtos.forEach((p) => {
-      mapa[p.nome] = Number(p.preco) || 0
-    })
-    return mapa
-  }, [produtos])
-
-  function valorDoPedido(pedido) {
-    return (pedido.itens || []).reduce((soma, item) => {
-      const preco = precoPorProduto[item.produto] || 0
-      return soma + preco * Number(item.quantidade || 0)
-    }, 0)
+  function gerarNumeroPedido(id) {
+    return `PV-2026-${String(id).padStart(5, '0')}`
   }
 
-  function ehDoMes(dataISO, mes, ano) {
-    const d = new Date(dataISO)
-    return d.getMonth() === mes && d.getFullYear() === ano
+  function formatarDataSimples(dataISO) {
+    if (!dataISO) return '-'
+    const [ano, mes, dia] = dataISO.split('-')
+    return `${dia}/${mes}/${ano}`
   }
+
+  // ---------- STATUS VISUAL DO PEDIDO (igual à página Pedidos) ----------
+  function totalProduzido(pedido) {
+    return (pedido.itens || []).reduce((soma, item) => soma + Number(item.produzido || 0), 0)
+  }
+
+  function labelStatus(pedido) {
+    if (pedido.status === 'Concluído') return 'Entregue'
+    const produzido = totalProduzido(pedido)
+    if (produzido > 0) return 'Em andamento'
+    return 'Pendente'
+  }
+
+  const pedidosPendentes = pedidos.filter((p) => labelStatus(p) === 'Pendente')
+  const pedidosEmProducao = pedidos.filter((p) => labelStatus(p) === 'Em andamento')
+  const pedidosEntregues = pedidos.filter((p) => labelStatus(p) === 'Entregue')
 
   const agora = new Date()
-  const mesAtual = agora.getMonth()
-  const anoAtual = agora.getFullYear()
-  const dataMesAnterior = new Date(anoAtual, mesAtual - 1, 1)
-  const mesAnterior = dataMesAnterior.getMonth()
-  const anoMesAnterior = dataMesAnterior.getFullYear()
 
-  const pedidosMesAtual = pedidos.filter((p) => ehDoMes(p.created_at, mesAtual, anoAtual))
-  const pedidosMesAnterior = pedidos.filter((p) => ehDoMes(p.created_at, mesAnterior, anoMesAnterior))
-
-  const concluidosMesAtual = pedidosMesAtual.filter((p) => p.status === 'Concluído')
-  const concluidosMesAnterior = pedidosMesAnterior.filter((p) => p.status === 'Concluído')
-
-  const faturamentoMesAtual = concluidosMesAtual.reduce((soma, p) => soma + valorDoPedido(p), 0)
-  const faturamentoMesAnterior = concluidosMesAnterior.reduce((soma, p) => soma + valorDoPedido(p), 0)
-
-  const ticketMedioAtual = concluidosMesAtual.length > 0 ? faturamentoMesAtual / concluidosMesAtual.length : 0
-  const ticketMedioAnterior = concluidosMesAnterior.length > 0 ? faturamentoMesAnterior / concluidosMesAnterior.length : 0
-
-  const pendentes = pedidos.filter((p) => p.status === 'Pendente')
-
-  function calcularVariacao(atual, anterior) {
-    if (anterior === 0) return atual === 0 ? 0 : 100
-    return ((atual - anterior) / anterior) * 100
+  // ---------- LEMBRETES DE ENTREGA ----------
+  function diasParaEntrega(pedido) {
+    if (!pedido.data_entrega) return null
+    const hoje = new Date()
+    hoje.setHours(0, 0, 0, 0)
+    const [ano, mes, dia] = pedido.data_entrega.split('-').map(Number)
+    const dataEntregaObj = new Date(ano, mes - 1, dia)
+    dataEntregaObj.setHours(0, 0, 0, 0)
+    const diffMs = dataEntregaObj - hoje
+    return Math.round(diffMs / (1000 * 60 * 60 * 24))
   }
 
-  const variacaoFaturamento = calcularVariacao(faturamentoMesAtual, faturamentoMesAnterior)
-  const variacaoPedidos = calcularVariacao(pedidosMesAtual.length, pedidosMesAnterior.length)
-  const variacaoTicket = calcularVariacao(ticketMedioAtual, ticketMedioAnterior)
+  const pedidosComEntregaPendente = pedidos
+    .filter((p) => p.data_entrega && p.status !== 'Concluído')
+    .map((p) => ({ ...p, dias: diasParaEntrega(p) }))
+    .sort((a, b) => a.dias - b.dias)
 
-  function formatarMoeda(valor) {
-    return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-  }
+  const pedidosAtrasados = pedidosComEntregaPendente.filter((p) => p.dias < 0)
+  const pedidosProximos = pedidosComEntregaPendente.filter((p) => p.dias >= 0 && p.dias <= 3)
 
-  function formatarVariacao(valor) {
-    const sinal = valor >= 0 ? '↗' : '↘'
-    return `${sinal} ${Math.abs(valor).toFixed(1)}% vs. mês anterior`
+  function textoPrazo(dias) {
+    if (dias < 0) return `Atrasado há ${Math.abs(dias)} dia(s)`
+    if (dias === 0) return 'Entrega é hoje'
+    if (dias === 1) return 'Entrega amanhã'
+    return `Entrega em ${dias} dias`
   }
 
   const metricas = [
     {
-      titulo: 'Faturamento no mês',
-      valor: formatarMoeda(faturamentoMesAtual),
-      variacao: formatarVariacao(variacaoFaturamento),
-      corVariacao: variacaoFaturamento >= 0 ? 'text-emerald-600' : 'text-red-500',
-      corIcone: 'bg-emerald-50 text-emerald-600',
-      icone: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m9-8a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-    },
-    {
-      titulo: 'Pedidos emitidos',
-      valor: String(pedidosMesAtual.length),
-      variacao: formatarVariacao(variacaoPedidos),
-      corVariacao: variacaoPedidos >= 0 ? 'text-emerald-600' : 'text-red-500',
-      corIcone: 'bg-blue-50 text-blue-600',
-      icone: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-        </svg>
-      ),
-    },
-    {
-      titulo: 'Ticket médio',
-      valor: formatarMoeda(ticketMedioAtual),
-      variacao: formatarVariacao(variacaoTicket),
-      corVariacao: variacaoTicket >= 0 ? 'text-emerald-600' : 'text-red-500',
-      corIcone: 'bg-violet-50 text-violet-600',
-      icone: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      ),
-    },
-    {
-      titulo: 'Aguardando aprovação',
-      valor: String(pendentes.length),
-      variacao: pendentes.length > 0 ? `${pendentes.length} aguardando nota fiscal` : 'Nenhum pedido pendente',
+      titulo: 'Pedidos pendentes',
+      valor: String(pedidosPendentes.length),
+      variacao: pedidosPendentes.length > 0 ? `${pedidosPendentes.length} aguardando início de produção` : 'Nenhum pedido pendente',
       corVariacao: 'text-amber-600',
       corIcone: 'bg-amber-50 text-amber-600',
       icone: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+    },
+    {
+      titulo: 'Produção',
+      valor: String(pedidosEmProducao.length),
+      variacao: pedidosEmProducao.length > 0 ? `${pedidosEmProducao.length} em andamento` : 'Nenhum pedido em produção',
+      corVariacao: 'text-blue-600',
+      corIcone: 'bg-blue-50 text-blue-600',
+      icone: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+        </svg>
+      ),
+    },
+    {
+      titulo: 'Entregas',
+      valor: String(pedidosEntregues.length),
+      variacao: pedidosEntregues.length > 0 ? `${pedidosEntregues.length} pedido(s) entregue(s)` : 'Nenhuma entrega registrada',
+      corVariacao: 'text-emerald-600',
+      corIcone: 'bg-emerald-50 text-emerald-600',
+      icone: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
         </svg>
       ),
     },
@@ -166,10 +150,59 @@ function Dashboard() {
         </div>
       </div>
 
+      {/* Lembretes de entrega */}
+      {!carregando && (pedidosAtrasados.length > 0 || pedidosProximos.length > 0) && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            ⏰ Lembretes de entrega
+          </h3>
+
+          <div className="space-y-2">
+            {pedidosAtrasados.map((pedido) => (
+              <div
+                key={pedido.id}
+                className="flex items-center justify-between bg-red-50 border border-red-100 rounded-lg px-4 py-3"
+              >
+                <div>
+                  <p className="font-medium text-gray-800">
+                    {gerarNumeroPedido(pedido.id)} — {pedido.cliente}
+                  </p>
+                  <p className="text-sm text-red-600">
+                    🔴 {textoPrazo(pedido.dias)} · Previsto para {formatarDataSimples(pedido.data_entrega)}
+                  </p>
+                </div>
+                <a href="/pedidos" className="text-sm text-red-700 font-medium hover:underline">
+                  Ver pedido →
+                </a>
+              </div>
+            ))}
+
+            {pedidosProximos.map((pedido) => (
+              <div
+                key={pedido.id}
+                className="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-lg px-4 py-3"
+              >
+                <div>
+                  <p className="font-medium text-gray-800">
+                    {gerarNumeroPedido(pedido.id)} — {pedido.cliente}
+                  </p>
+                  <p className="text-sm text-amber-600">
+                    🟡 {textoPrazo(pedido.dias)} · Previsto para {formatarDataSimples(pedido.data_entrega)}
+                  </p>
+                </div>
+                <a href="/pedidos" className="text-sm text-amber-700 font-medium hover:underline">
+                  Ver pedido →
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Cards de métricas */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         {carregando ? (
-          [1, 2, 3, 4].map((i) => (
+          [1, 2, 3].map((i) => (
             <div key={i} className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm h-28 animate-pulse" />
           ))
         ) : (

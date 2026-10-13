@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { useUsuario } from '../context/UsuarioContext'
 
 function Pedidos() {
+  const usuario = useUsuario()
   const [pedidos, setPedidos] = useState([])
   const [clientesLista, setClientesLista] = useState([])
   const [produtosLista, setProdutosLista] = useState([])
@@ -12,6 +14,7 @@ function Pedidos() {
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
   const [clienteSelecionado, setClienteSelecionado] = useState('')
   const [itensNovoPedido, setItensNovoPedido] = useState([{ produto: '', quantidade: '' }])
+  const [dataEntrega, setDataEntrega] = useState('')
 
   const [modalProducaoAberto, setModalProducaoAberto] = useState(false)
   const [pedidoProducao, setPedidoProducao] = useState(null)
@@ -23,6 +26,8 @@ function Pedidos() {
 
   const [modalDetalhesAberto, setModalDetalhesAberto] = useState(false)
   const [pedidoDetalhes, setPedidoDetalhes] = useState(null)
+
+  const [excluindoId, setExcluindoId] = useState(null)
 
   useEffect(() => {
     buscarPedidos()
@@ -84,10 +89,59 @@ function Pedidos() {
     return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
   }
 
+  // ---------- FORMATAR DATA SIMPLES (campo tipo "date", sem hora/fuso) ----------
+  function formatarDataSimples(dataISO) {
+    if (!dataISO) return '-'
+    const [ano, mes, dia] = dataISO.split('-')
+    return `${dia}/${mes}/${ano}`
+  }
+
+  // ---------- CÁLCULO DE PROGRESSO DO PEDIDO ----------
+  function totalProduzido(pedido) {
+    return pedido.itens.reduce((soma, item) => soma + Number(item.produzido || 0), 0)
+  }
+
+  // ---------- TEXTO DE STATUS EXIBIDO (não altera o valor interno salvo no banco) ----------
+  function labelStatus(pedido) {
+    if (pedido.status === 'Concluído') return 'Entregue'
+    const produzido = totalProduzido(pedido)
+    if (produzido > 0) return 'Em andamento'
+    return 'Pendente'
+  }
+
+  function corStatus(labelTexto) {
+    if (labelTexto === 'Entregue') return 'bg-green-100 text-green-700'
+    if (labelTexto === 'Em andamento') return 'bg-blue-100 text-blue-700'
+    return 'bg-yellow-100 text-yellow-700'
+  }
+
+  // ---------- CÁLCULO DE PRAZO DE ENTREGA ----------
+  function diasParaEntrega(pedido) {
+    if (!pedido.data_entrega) return null
+    const hoje = new Date()
+    hoje.setHours(0, 0, 0, 0)
+    const [ano, mes, dia] = pedido.data_entrega.split('-').map(Number)
+    const dataEntregaObj = new Date(ano, mes - 1, dia)
+    dataEntregaObj.setHours(0, 0, 0, 0)
+    const diffMs = dataEntregaObj - hoje
+    return Math.round(diffMs / (1000 * 60 * 60 * 24))
+  }
+
+  function infoEntrega(pedido) {
+    if (!pedido.data_entrega) return null
+    if (pedido.status === 'Concluído') return null
+    const dias = diasParaEntrega(pedido)
+    if (dias < 0) return { texto: `⏰ Atrasado há ${Math.abs(dias)} dia(s)`, cor: 'bg-red-100 text-red-700' }
+    if (dias === 0) return { texto: '⏰ Entrega é hoje', cor: 'bg-orange-100 text-orange-700' }
+    if (dias <= 3) return { texto: `⏰ Entrega em ${dias} dia(s)`, cor: 'bg-yellow-100 text-yellow-700' }
+    return null
+  }
+
   // ---------- NOVO PEDIDO ----------
   function abrirModalNovoPedido() {
     setClienteSelecionado('')
     setItensNovoPedido([{ produto: '', quantidade: '' }])
+    setDataEntrega('')
     setModalNovoAberto(true)
   }
 
@@ -127,7 +181,8 @@ function Pedidos() {
       cliente: clienteSelecionado,
       itens: itensFormatados,
       status: 'Em produção',
-      nota_fiscal: null
+      nota_fiscal: null,
+      data_entrega: dataEntrega || null
     }])
 
     if (error) {
@@ -139,7 +194,7 @@ function Pedidos() {
     buscarPedidos()
   }
 
-  // ---------- REGISTRAR PRODUÇÃO ----------
+  // ---------- REGISTRAR ENTREGA ----------
   function abrirModalProducao(pedido) {
     setPedidoProducao(pedido)
     setQuantidadesProduzidas({})
@@ -193,7 +248,7 @@ function Pedidos() {
       .eq('id', pedidoProducao.id)
 
     if (error) {
-      alert('Erro ao registrar produção: ' + error.message)
+      alert('Erro ao registrar entrega: ' + error.message)
       return
     }
 
@@ -205,6 +260,54 @@ function Pedidos() {
   function abrirModalDetalhes(pedido) {
     setPedidoDetalhes(pedido)
     setModalDetalhesAberto(true)
+  }
+
+  // ---------- EXCLUIR PEDIDO (somente admin) ----------
+  async function handleExcluirPedido(pedido) {
+    const label = labelStatus(pedido)
+    const mensagem =
+      pedido.status === 'Concluído'
+        ? `Este pedido já está ENTREGUE${pedido.nota_fiscal ? ` (NF ${pedido.nota_fiscal})` : ''}. Excluir não desfaz valores já contados em relatórios anteriores, nem devolve o estoque abatido. Deseja mesmo excluir o pedido ${gerarNumeroPedido(pedido.id)}?`
+        : `Tem certeza que deseja excluir o pedido ${gerarNumeroPedido(pedido.id)}? Essa ação não pode ser desfeita.`
+
+    const confirmar = window.confirm(mensagem)
+    if (!confirmar) return
+
+    setExcluindoId(pedido.id)
+
+    const { error } = await supabase.from('pedidos').delete().eq('id', pedido.id)
+
+    setExcluindoId(null)
+
+    if (error) {
+      console.log('Erro ao excluir pedido:', error)
+      alert('Erro ao excluir pedido. Veja o console para detalhes.')
+      return
+    }
+
+    buscarPedidos()
+  }
+
+  // ---------- BAIXA DE ESTOQUE AO CONCLUIR PEDIDO ----------
+  async function baixarEstoqueDoPedido(pedido) {
+    for (const item of pedido.itens) {
+      const quantidadeVendida = Number(item.produzido || item.quantidade || 0)
+      if (quantidadeVendida <= 0) continue
+
+      const produto = produtosLista.find((p) => p.nome === item.produto)
+      if (!produto) continue
+
+      const novoEstoque = Number(produto.estoque || 0) - quantidadeVendida
+
+      const { error } = await supabase
+        .from('produtos')
+        .update({ estoque: novoEstoque })
+        .eq('id', produto.id)
+
+      if (error) {
+        console.log(`Erro ao abater estoque do produto ${item.produto}:`, error)
+      }
+    }
   }
 
   // ---------- IMPRIMIR (PROFISSIONAL) ----------
@@ -372,7 +475,8 @@ function Pedidos() {
           <div class="pedido-titulo">
             <p class="pedido-numero">Pedido ${gerarNumeroPedido(pedido.id)}</p>
             <p class="pedido-data">Emitido em ${formatarDataHora(new Date().toISOString())}</p>
-            <span class="status-badge">${pedido.status}</span>
+            ${pedido.data_entrega ? `<p class="pedido-data">Entrega prevista: ${formatarDataSimples(pedido.data_entrega)}</p>` : ''}
+            <span class="status-badge">${labelStatus(pedido)}</span>
           </div>
         </div>
 
@@ -445,6 +549,7 @@ function Pedidos() {
       alert('Digite o número da nota fiscal')
       return
     }
+
     const { error } = await supabase
       .from('pedidos')
       .update({ status: 'Concluído', nota_fiscal: numeroNF })
@@ -454,8 +559,12 @@ function Pedidos() {
       alert('Erro ao lançar NF: ' + error.message)
       return
     }
+
+    await baixarEstoqueDoPedido(pedidoNF)
+
     setModalNFAberto(false)
     buscarPedidos()
+    buscarProdutos()
   }
 
   // ---------- FILTROS ----------
@@ -463,16 +572,9 @@ function Pedidos() {
     const bateBusca =
       gerarNumeroPedido(p.id).toLowerCase().includes(busca.toLowerCase()) ||
       p.cliente.toLowerCase().includes(busca.toLowerCase())
-    const bateStatus = filtroStatus === 'Todos os status' || p.status === filtroStatus
+    const bateStatus = filtroStatus === 'Todos os status' || labelStatus(p) === filtroStatus
     return bateBusca && bateStatus
   })
-
-  function corStatus(status) {
-    if (status === 'Em produção') return 'bg-blue-100 text-blue-700'
-    if (status === 'Pendente') return 'bg-yellow-100 text-yellow-700'
-    if (status === 'Concluído') return 'bg-green-100 text-green-700'
-    return 'bg-gray-100 text-gray-700'
-  }
 
   return (
     <div className="p-8">
@@ -500,9 +602,9 @@ function Pedidos() {
           className="border rounded-lg px-4 py-2"
         >
           <option>Todos os status</option>
-          <option>Em produção</option>
           <option>Pendente</option>
-          <option>Concluído</option>
+          <option>Em andamento</option>
+          <option>Entregue</option>
         </select>
       </div>
 
@@ -514,78 +616,108 @@ function Pedidos() {
               <th className="p-4">Cliente</th>
               <th className="p-4">Itens</th>
               <th className="p-4">Dados</th>
+              <th className="p-4">Entrega</th>
               <th className="p-4">Status</th>
               <th className="p-4">Ação</th>
               <th className="p-4">Nota Fiscal</th>
             </tr>
           </thead>
           <tbody>
-            {pedidosFiltrados.map(pedido => (
-              <tr key={pedido.id} className="border-b">
-                <td className="p-4 font-medium">
-                  <button
-                    onClick={() => abrirModalDetalhes(pedido)}
-                    className="text-blue-600 hover:underline"
-                  >
-                    {gerarNumeroPedido(pedido.id)}
-                  </button>
-                </td>
-                <td className="p-4">{pedido.cliente}</td>
-                <td className="p-4">
-                  {pedido.itens.map((item, i) => (
-                    <div key={i}>
-                      {item.produto} (
-                      {pedido.status === 'Em produção'
-                        ? `${item.produzido || 0}/${item.quantidade}kg`
-                        : `${item.quantidade}kg`}
-                      )
-                    </div>
-                  ))}
-                </td>
-                <td className="p-4">{formatarData(pedido.created_at)}</td>
-                <td className="p-4">
-                  <span className={`px-3 py-1 rounded-full text-sm ${corStatus(pedido.status)}`}>
-                    {pedido.status}
-                  </span>
-                </td>
-                <td className="p-4">
-                  <div className="flex gap-3 flex-wrap">
-                    <button onClick={() => abrirModalDetalhes(pedido)} className="text-gray-600 hover:underline">
-                      👁 Detalhes
+            {pedidosFiltrados.map(pedido => {
+              const label = labelStatus(pedido)
+              const alertaEntrega = infoEntrega(pedido)
+              return (
+                <tr key={pedido.id} className="border-b">
+                  <td className="p-4 font-medium">
+                    <button
+                      onClick={() => abrirModalDetalhes(pedido)}
+                      className="text-blue-600 hover:underline"
+                    >
+                      {gerarNumeroPedido(pedido.id)}
                     </button>
-                    {pedido.status === 'Em produção' && (
-                      <>
-                        <button
-                          onClick={() => abrirModalProducao(pedido)}
-                          className="text-blue-600 hover:underline"
-                        >
-                          Registrar produção
-                        </button>
-                        <button onClick={() => imprimirPedido(pedido)} className="text-gray-600 hover:underline">
-                          🖨 Imprimir
-                        </button>
-                      </>
+                  </td>
+                  <td className="p-4">{pedido.cliente}</td>
+                  <td className="p-4">
+                    {pedido.itens.map((item, i) => (
+                      <div key={i}>
+                        {item.produto} (
+                        {pedido.status === 'Em produção'
+                          ? `${item.produzido || 0}/${item.quantidade}kg`
+                          : `${item.quantidade}kg`}
+                        )
+                      </div>
+                    ))}
+                  </td>
+                  <td className="p-4">{formatarData(pedido.created_at)}</td>
+                  <td className="p-4">
+                    {pedido.data_entrega ? (
+                      <div>
+                        <div className="text-sm">{formatarDataSimples(pedido.data_entrega)}</div>
+                        {alertaEntrega && (
+                          <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${alertaEntrega.cor}`}>
+                            {alertaEntrega.texto}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-400 text-sm">-</span>
                     )}
-                    {pedido.status === 'Pendente' && (
-                      <>
-                        <button onClick={() => imprimirPedido(pedido)} className="text-gray-600 hover:underline">
-                          🖨 Imprimir
-                        </button>
-                        <button onClick={() => abrirModalNF(pedido)} className="text-emerald-600 hover:underline">
-                          Lançar NF
-                        </button>
-                      </>
-                    )}
-                    {pedido.status === 'Concluído' && (
-                      <button onClick={() => imprimirPedido(pedido)} className="text-gray-600 hover:underline">
-                        🖨 Imprimir
+                  </td>
+                  <td className="p-4">
+                    <span className={`px-3 py-1 rounded-full text-sm ${corStatus(label)}`}>
+                      {label}
+                    </span>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex gap-3 flex-wrap">
+                      <button onClick={() => abrirModalDetalhes(pedido)} className="text-gray-600 hover:underline">
+                        👁 Detalhes
                       </button>
-                    )}
-                  </div>
-                </td>
-                <td className="p-4">{pedido.nota_fiscal || '-'}</td>
-              </tr>
-            ))}
+                      {pedido.status === 'Em produção' && (
+                        <>
+                          <button
+                            onClick={() => abrirModalProducao(pedido)}
+                            className="text-blue-600 hover:underline"
+                          >
+                            Registrar entrega
+                          </button>
+                          {label === 'Em andamento' && (
+                            <button onClick={() => imprimirPedido(pedido)} className="text-gray-600 hover:underline">
+                              🖨 Imprimir
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {pedido.status === 'Pendente' && (
+                        <>
+                          <button onClick={() => imprimirPedido(pedido)} className="text-gray-600 hover:underline">
+                            🖨 Imprimir
+                          </button>
+                          <button onClick={() => abrirModalNF(pedido)} className="text-emerald-600 hover:underline">
+                            Lançar NF
+                          </button>
+                        </>
+                      )}
+                      {pedido.status === 'Concluído' && (
+                        <button onClick={() => imprimirPedido(pedido)} className="text-gray-600 hover:underline">
+                          🖨 Imprimir
+                        </button>
+                      )}
+                      {usuario?.admin && (
+                        <button
+                          onClick={() => handleExcluirPedido(pedido)}
+                          disabled={excluindoId === pedido.id}
+                          className="text-red-500 hover:text-red-700 hover:underline disabled:opacity-50"
+                        >
+                          {excluindoId === pedido.id ? 'Excluindo...' : '🗑 Excluir'}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-4">{pedido.nota_fiscal || '-'}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -618,6 +750,14 @@ function Pedidos() {
                 <option key={c.id} value={c.nome}>{c.nome}</option>
               ))}
             </select>
+
+            <label className="block mb-1 font-medium">Data de entrega (opcional)</label>
+            <input
+              type="date"
+              value={dataEntrega}
+              onChange={e => setDataEntrega(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 mb-4"
+            />
 
             <label className="block mb-1 font-medium">Itens</label>
             {itensNovoPedido.map((item, index) => (
@@ -660,11 +800,11 @@ function Pedidos() {
         </div>
       )}
 
-      {/* MODAL REGISTRAR PRODUÇÃO */}
+      {/* MODAL REGISTRAR ENTREGA */}
       {modalProducaoAberto && pedidoProducao && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-1">Registrar produção</h2>
+            <h2 className="text-xl font-bold mb-1">Registrar entrega</h2>
             <p className="text-gray-500 mb-4">
               Pedido {gerarNumeroPedido(pedidoProducao.id)} — {pedidoProducao.cliente}
             </p>
@@ -675,14 +815,14 @@ function Pedidos() {
                 <div key={index} className="border rounded-lg p-3 mb-3">
                   <p className="font-medium">{item.produto}</p>
                   <p className="text-sm text-gray-500">
-                    Pedido: {item.quantidade}kg · Já produzido: {item.produzido || 0}kg · Falta: {falta}kg
+                    Pedido: {item.quantidade}kg · Já entregue: {item.produzido || 0}kg · Falta: {falta}kg
                   </p>
 
                   {item.historico && item.historico.length > 0 && (
                     <div className="text-xs text-gray-400 mt-1">
                       {item.historico.map((h, hi) => (
                         <div key={hi}>
-                          Produziu {h.quantidade}kg em {formatarDataHora(h.data)}
+                          Entregou {h.quantidade}kg em {formatarDataHora(h.data)}
                         </div>
                       ))}
                     </div>
@@ -694,14 +834,14 @@ function Pedidos() {
                         type="number"
                         min="0"
                         max={falta}
-                        placeholder={`Produzir agora (até ${falta}kg)`}
+                        placeholder={`Entregar agora (até ${falta}kg)`}
                         value={quantidadesProduzidas[index] || ''}
                         onChange={e => atualizarQuantidadeProduzida(index, e.target.value, falta)}
                         className="flex-1 border rounded-lg px-3 py-2"
                       />
                     </div>
                   ) : (
-                    <p className="text-emerald-600 text-sm mt-2">✓ Item 100% produzido</p>
+                    <p className="text-emerald-600 text-sm mt-2">✓ Item 100% entregue</p>
                   )}
                 </div>
               )
@@ -712,7 +852,7 @@ function Pedidos() {
                 Cancelar
               </button>
               <button onClick={salvarProducao} className="px-4 py-2 rounded-lg bg-emerald-600 text-white">
-                Salvar produção
+                Salvar entrega
               </button>
             </div>
           </div>
@@ -724,13 +864,23 @@ function Pedidos() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-1">Detalhes do pedido</h2>
-            <p className="text-gray-500 mb-4">
+            <p className="text-gray-500 mb-2">
               {gerarNumeroPedido(pedidoDetalhes.id)} — {pedidoDetalhes.cliente}
             </p>
+            {pedidoDetalhes.data_entrega && (
+              <p className="text-sm text-gray-500 mb-2">
+                Entrega prevista: <strong>{formatarDataSimples(pedidoDetalhes.data_entrega)}</strong>
+                {infoEntrega(pedidoDetalhes) && (
+                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${infoEntrega(pedidoDetalhes).cor}`}>
+                    {infoEntrega(pedidoDetalhes).texto}
+                  </span>
+                )}
+              </p>
+            )}
             <p className="mb-4">
               Status:{' '}
-              <span className={`px-3 py-1 rounded-full text-sm ${corStatus(pedidoDetalhes.status)}`}>
-                {pedidoDetalhes.status}
+              <span className={`px-3 py-1 rounded-full text-sm ${corStatus(labelStatus(pedidoDetalhes))}`}>
+                {labelStatus(pedidoDetalhes)}
               </span>
             </p>
 
@@ -740,22 +890,22 @@ function Pedidos() {
                 <div key={index} className="border rounded-lg p-3 mb-3">
                   <p className="font-medium">{item.produto}</p>
                   <p className="text-sm text-gray-500 mb-2">
-                    Pedido: {item.quantidade}kg · Produzido: {item.produzido || 0}kg · Falta: {falta > 0 ? falta : 0}kg
+                    Pedido: {item.quantidade}kg · Entregue: {item.produzido || 0}kg · Falta: {falta > 0 ? falta : 0}kg
                   </p>
 
                   {item.historico && item.historico.length > 0 ? (
                     <div>
-                      <p className="text-xs font-medium text-gray-600 mb-1">Histórico de produção:</p>
+                      <p className="text-xs font-medium text-gray-600 mb-1">Histórico de entregas:</p>
                       <div className="text-xs text-gray-500 space-y-1">
                         {item.historico.map((h, hi) => (
                           <div key={hi}>
-                            • Produziu {h.quantidade}kg em {formatarDataHora(h.data)}
+                            • Entregou {h.quantidade}kg em {formatarDataHora(h.data)}
                           </div>
                         ))}
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-400">Nenhuma produção registrada ainda.</p>
+                    <p className="text-xs text-gray-400">Nenhuma entrega registrada ainda.</p>
                   )}
                 </div>
               )

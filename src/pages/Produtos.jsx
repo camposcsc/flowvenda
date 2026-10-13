@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { useUsuario } from '../context/UsuarioContext'
 
 function Produtos() {
+  const usuario = useUsuario()
   const [produtos, setProdutos] = useState([])
   const [carregando, setCarregando] = useState(true)
 
@@ -9,12 +11,14 @@ function Produtos() {
   const [filtroCategoria, setFiltroCategoria] = useState('Todas as categorias')
 
   const [modalAberto, setModalAberto] = useState(false)
+  const [produtoEditando, setProdutoEditando] = useState(null)
   const [nome, setNome] = useState('')
   const [categoria, setCategoria] = useState('Produto')
   const [grupo, setGrupo] = useState('Suíno')
   const [preco, setPreco] = useState('')
   const [estoque, setEstoque] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [excluindoId, setExcluindoId] = useState(null)
 
   useEffect(() => {
     buscarProdutos()
@@ -64,6 +68,28 @@ function Produtos() {
   const totalBaixoEstoque = produtos.filter((p) => calcularStatus(p) === 'Baixo estoque').length
   const totalEsgotado = produtos.filter((p) => calcularStatus(p) === 'Esgotado').length
 
+  // ---------- ABRIR MODAL PARA NOVO ITEM ----------
+  function abrirModalNovoItem() {
+    setProdutoEditando(null)
+    setNome('')
+    setCategoria('Produto')
+    setGrupo('Suíno')
+    setPreco('')
+    setEstoque('')
+    setModalAberto(true)
+  }
+
+  // ---------- ABRIR MODAL PARA EDITAR ITEM ----------
+  function abrirModalEditar(produto) {
+    setProdutoEditando(produto)
+    setNome(produto.nome || '')
+    setCategoria(produto.categoria || 'Produto')
+    setGrupo(produto.grupo || 'Suíno')
+    setPreco(produto.preco != null ? String(produto.preco) : '')
+    setEstoque(produto.estoque != null ? String(produto.estoque) : '')
+    setModalAberto(true)
+  }
+
   async function salvarProduto() {
     if (!nome.trim()) {
       alert('Informe o nome do produto ou serviço.')
@@ -72,15 +98,26 @@ function Produtos() {
 
     setSalvando(true)
 
-    const { error } = await supabase.from('produtos').insert([
-      {
-        nome,
-        categoria,
-        grupo: categoria === 'Produto' ? grupo : null,
-        preco: Number(preco) || 0,
-        estoque: categoria === 'Serviço' ? 0 : Number(estoque) || 0,
-      },
-    ])
+    const dadosProduto = {
+      nome,
+      categoria,
+      grupo: categoria === 'Produto' ? grupo : null,
+      preco: Number(preco) || 0,
+      estoque: categoria === 'Serviço' ? 0 : Number(estoque) || 0,
+    }
+
+    let error
+
+    if (produtoEditando) {
+      const resposta = await supabase
+        .from('produtos')
+        .update(dadosProduto)
+        .eq('id', produtoEditando.id)
+      error = resposta.error
+    } else {
+      const resposta = await supabase.from('produtos').insert([dadosProduto])
+      error = resposta.error
+    }
 
     setSalvando(false)
 
@@ -96,11 +133,33 @@ function Produtos() {
 
   function fecharModal() {
     setModalAberto(false)
+    setProdutoEditando(null)
     setNome('')
     setCategoria('Produto')
     setGrupo('Suíno')
     setPreco('')
     setEstoque('')
+  }
+
+  async function handleExcluirProduto(produto) {
+    const confirmar = window.confirm(
+      `Tem certeza que deseja excluir "${produto.nome}"? Essa ação não pode ser desfeita.`
+    )
+    if (!confirmar) return
+
+    setExcluindoId(produto.id)
+
+    const { error } = await supabase.from('produtos').delete().eq('id', produto.id)
+
+    setExcluindoId(null)
+
+    if (error) {
+      console.log('Erro ao excluir produto:', error)
+      alert('Erro ao excluir produto. Veja o console para detalhes.')
+      return
+    }
+
+    buscarProdutos()
   }
 
   return (
@@ -113,7 +172,7 @@ function Produtos() {
         </div>
 
         <button
-          onClick={() => setModalAberto(true)}
+          onClick={abrirModalNovoItem}
           className="flex items-center gap-2 bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-800"
         >
           + Novo item
@@ -170,6 +229,7 @@ function Produtos() {
                 <th className="px-5 py-3 font-medium">Preço</th>
                 <th className="px-5 py-3 font-medium">Estoque</th>
                 <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -191,6 +251,25 @@ function Produtos() {
                         {status}
                       </span>
                     </td>
+                    <td className="px-5 py-4">
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => abrirModalEditar(produto)}
+                          className="text-blue-600 hover:text-blue-800 text-xs font-medium hover:underline"
+                        >
+                          ✏️ Editar
+                        </button>
+                        {usuario?.admin && (
+                          <button
+                            onClick={() => handleExcluirProduto(produto)}
+                            disabled={excluindoId === produto.id}
+                            className="text-red-500 hover:text-red-700 text-xs font-medium hover:underline disabled:opacity-50"
+                          >
+                            {excluindoId === produto.id ? 'Excluindo...' : 'Excluir'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 )
               })}
@@ -199,11 +278,13 @@ function Produtos() {
         )}
       </div>
 
-      {/* Modal novo item */}
+      {/* Modal novo item / editar item */}
       {modalAberto && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-md">
-            <h3 className="font-bold text-gray-800 mb-4">Novo item</h3>
+            <h3 className="font-bold text-gray-800 mb-4">
+              {produtoEditando ? 'Editar item' : 'Novo item'}
+            </h3>
 
             <label className="text-sm text-gray-600 mb-1 block">Nome</label>
             <input
@@ -273,7 +354,7 @@ function Produtos() {
                 disabled={salvando}
                 className="px-4 py-2 text-sm text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
               >
-                {salvando ? 'Salvando...' : 'Salvar item'}
+                {salvando ? 'Salvando...' : produtoEditando ? 'Salvar alterações' : 'Salvar item'}
               </button>
             </div>
           </div>

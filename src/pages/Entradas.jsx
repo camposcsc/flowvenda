@@ -1,13 +1,17 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import * as XLSX from 'xlsx'
+import { useUsuario } from '../context/UsuarioContext'
 
 function Entradas() {
+  const usuario = useUsuario()
+
   const [entradas, setEntradas] = useState([])
   const [produtos, setProdutos] = useState([])
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [mensagem, setMensagem] = useState('')
+  const [excluindoId, setExcluindoId] = useState(null)
 
   const [form, setForm] = useState({
     produto: '',
@@ -94,6 +98,26 @@ function Entradas() {
 
     setSalvando(false)
     if (!mensagem) setMensagem('Entrada registrada com sucesso!')
+    buscarDados()
+  }
+
+  async function handleExcluirEntrada(entrada) {
+    const confirmar = window.confirm(
+      `Tem certeza que deseja excluir a entrada de "${entrada.produto}" (${Number(entrada.quantidade).toLocaleString('pt-BR')} kg)?\n\nEssa ação não devolve automaticamente a quantidade do estoque do produto.`
+    )
+    if (!confirmar) return
+
+    setExcluindoId(entrada.id)
+
+    const { error } = await supabase.from('entradas_estoque').delete().eq('id', entrada.id)
+
+    if (error) {
+      alert('Erro ao excluir entrada: ' + error.message)
+      setExcluindoId(null)
+      return
+    }
+
+    setExcluindoId(null)
     buscarDados()
   }
 
@@ -366,16 +390,19 @@ function Entradas() {
               <th className="px-6 py-3 font-medium">Quantidade</th>
               <th className="px-6 py-3 font-medium">Fornecedor</th>
               <th className="px-6 py-3 font-medium">Observação</th>
+              {usuario?.admin && (
+                <th className="px-6 py-3 font-medium">Ações</th>
+              )}
             </tr>
           </thead>
           <tbody>
             {carregando ? (
               <tr>
-                <td colSpan={5} className="px-6 py-6 text-center text-gray-400">Carregando...</td>
+                <td colSpan={usuario?.admin ? 6 : 5} className="px-6 py-6 text-center text-gray-400">Carregando...</td>
               </tr>
             ) : entradasFiltradas.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-6 text-center text-gray-400">Nenhuma entrada encontrada.</td>
+                <td colSpan={usuario?.admin ? 6 : 5} className="px-6 py-6 text-center text-gray-400">Nenhuma entrada encontrada.</td>
               </tr>
             ) : (
               entradasFiltradas.map((entrada) => (
@@ -385,6 +412,17 @@ function Entradas() {
                   <td className="px-6 py-3 text-gray-600">{Number(entrada.quantidade).toLocaleString('pt-BR')} kg</td>
                   <td className="px-6 py-3 text-gray-600">{entrada.fornecedor || '-'}</td>
                   <td className="px-6 py-3 text-gray-600">{entrada.observacao || '-'}</td>
+                  {usuario?.admin && (
+                    <td className="px-6 py-3">
+                      <button
+                        onClick={() => handleExcluirEntrada(entrada)}
+                        disabled={excluindoId === entrada.id}
+                        className="text-red-600 hover:text-red-700 text-sm font-medium disabled:opacity-50"
+                      >
+                        {excluindoId === entrada.id ? 'Excluindo...' : '🗑 Excluir'}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
