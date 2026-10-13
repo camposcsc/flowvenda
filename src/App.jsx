@@ -4,6 +4,8 @@ import Dashboard from './pages/Dashboard'
 import Pedidos from './pages/Pedidos'
 import Clientes from './pages/Clientes'
 import Produtos from './pages/Produtos'
+import Entradas from './pages/Entradas'
+import Producao from './pages/Producao'
 import Relatorios from './pages/Relatorios'
 import Configuracoes from './pages/Configuracoes'
 import Login from './pages/Login'
@@ -29,6 +31,8 @@ function App() {
             <Route path="pedidos" element={<Pedidos />} />
             <Route path="clientes" element={<Clientes />} />
             <Route path="produtos" element={<Produtos />} />
+            <Route path="entradas" element={<Entradas />} />
+            <Route path="producao" element={<Producao />} />
             <Route path="relatorios" element={<Relatorios />} />
             <Route path="configuracoes" element={<Configuracoes />} />
             <Route path="usuarios" element={<Usuarios />} />

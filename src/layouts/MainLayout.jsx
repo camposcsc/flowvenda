@@ -21,6 +21,8 @@ function MainLayout() {
     { path: '/pedidos', label: 'Pedidos' },
     { path: '/clientes', label: 'Clientes' },
     { path: '/produtos', label: 'Produtos e serviços' },
+    { path: '/entradas', label: 'Entradas' },
+    { path: '/producao', label: 'Produção' },
     { path: '/relatorios', label: 'Relatórios' },
     { path: '/configuracoes', label: 'Configurações' },
     { path: '/usuarios', label: 'Usuários' },
