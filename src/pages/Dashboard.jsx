@@ -1,14 +1,93 @@
+import { useState, useEffect, useMemo } from 'react'
+import { supabase } from '../supabaseClient'
 import { useUsuario } from '../context/UsuarioContext'
 
 function Dashboard() {
   const usuario = useUsuario()
+  const [pedidos, setPedidos] = useState([])
+  const [produtos, setProdutos] = useState([])
+  const [carregando, setCarregando] = useState(true)
+
+  useEffect(() => {
+    buscarDados()
+  }, [])
+
+  async function buscarDados() {
+    setCarregando(true)
+    const [resPedidos, resProdutos] = await Promise.all([
+      supabase.from('pedidos').select('*'),
+      supabase.from('produtos').select('*'),
+    ])
+    if (!resPedidos.error) setPedidos(resPedidos.data || [])
+    if (!resProdutos.error) setProdutos(resProdutos.data || [])
+    setCarregando(false)
+  }
+
+  const precoPorProduto = useMemo(() => {
+    const mapa = {}
+    produtos.forEach((p) => {
+      mapa[p.nome] = Number(p.preco) || 0
+    })
+    return mapa
+  }, [produtos])
+
+  function valorDoPedido(pedido) {
+    return (pedido.itens || []).reduce((soma, item) => {
+      const preco = precoPorProduto[item.produto] || 0
+      return soma + preco * Number(item.quantidade || 0)
+    }, 0)
+  }
+
+  function ehDoMes(dataISO, mes, ano) {
+    const d = new Date(dataISO)
+    return d.getMonth() === mes && d.getFullYear() === ano
+  }
+
+  const agora = new Date()
+  const mesAtual = agora.getMonth()
+  const anoAtual = agora.getFullYear()
+  const dataMesAnterior = new Date(anoAtual, mesAtual - 1, 1)
+  const mesAnterior = dataMesAnterior.getMonth()
+  const anoMesAnterior = dataMesAnterior.getFullYear()
+
+  const pedidosMesAtual = pedidos.filter((p) => ehDoMes(p.created_at, mesAtual, anoAtual))
+  const pedidosMesAnterior = pedidos.filter((p) => ehDoMes(p.created_at, mesAnterior, anoMesAnterior))
+
+  const concluidosMesAtual = pedidosMesAtual.filter((p) => p.status === 'Concluído')
+  const concluidosMesAnterior = pedidosMesAnterior.filter((p) => p.status === 'Concluído')
+
+  const faturamentoMesAtual = concluidosMesAtual.reduce((soma, p) => soma + valorDoPedido(p), 0)
+  const faturamentoMesAnterior = concluidosMesAnterior.reduce((soma, p) => soma + valorDoPedido(p), 0)
+
+  const ticketMedioAtual = concluidosMesAtual.length > 0 ? faturamentoMesAtual / concluidosMesAtual.length : 0
+  const ticketMedioAnterior = concluidosMesAnterior.length > 0 ? faturamentoMesAnterior / concluidosMesAnterior.length : 0
+
+  const pendentes = pedidos.filter((p) => p.status === 'Pendente')
+
+  function calcularVariacao(atual, anterior) {
+    if (anterior === 0) return atual === 0 ? 0 : 100
+    return ((atual - anterior) / anterior) * 100
+  }
+
+  const variacaoFaturamento = calcularVariacao(faturamentoMesAtual, faturamentoMesAnterior)
+  const variacaoPedidos = calcularVariacao(pedidosMesAtual.length, pedidosMesAnterior.length)
+  const variacaoTicket = calcularVariacao(ticketMedioAtual, ticketMedioAnterior)
+
+  function formatarMoeda(valor) {
+    return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  }
+
+  function formatarVariacao(valor) {
+    const sinal = valor >= 0 ? '↗' : '↘'
+    return `${sinal} ${Math.abs(valor).toFixed(1)}% vs. mês anterior`
+  }
 
   const metricas = [
     {
       titulo: 'Faturamento no mês',
-      valor: 'R$ 84.290,50',
-      variacao: '↗ 12,8% vs. mês anterior',
-      corVariacao: 'text-emerald-600',
+      valor: formatarMoeda(faturamentoMesAtual),
+      variacao: formatarVariacao(variacaoFaturamento),
+      corVariacao: variacaoFaturamento >= 0 ? 'text-emerald-600' : 'text-red-500',
       corIcone: 'bg-emerald-50 text-emerald-600',
       icone: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -18,9 +97,9 @@ function Dashboard() {
     },
     {
       titulo: 'Pedidos emitidos',
-      valor: '128',
-      variacao: '↗ 8,4% vs. mês anterior',
-      corVariacao: 'text-emerald-600',
+      valor: String(pedidosMesAtual.length),
+      variacao: formatarVariacao(variacaoPedidos),
+      corVariacao: variacaoPedidos >= 0 ? 'text-emerald-600' : 'text-red-500',
       corIcone: 'bg-blue-50 text-blue-600',
       icone: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -30,9 +109,9 @@ function Dashboard() {
     },
     {
       titulo: 'Ticket médio',
-      valor: 'R$ 658,52',
-      variacao: '↗ 4,2% vs. mês anterior',
-      corVariacao: 'text-emerald-600',
+      valor: formatarMoeda(ticketMedioAtual),
+      variacao: formatarVariacao(variacaoTicket),
+      corVariacao: variacaoTicket >= 0 ? 'text-emerald-600' : 'text-red-500',
       corIcone: 'bg-violet-50 text-violet-600',
       icone: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -42,8 +121,8 @@ function Dashboard() {
     },
     {
       titulo: 'Aguardando aprovação',
-      valor: '7',
-      variacao: '3 vencem hoje',
+      valor: String(pendentes.length),
+      variacao: pendentes.length > 0 ? `${pendentes.length} aguardando nota fiscal` : 'Nenhum pedido pendente',
       corVariacao: 'text-amber-600',
       corIcone: 'bg-amber-50 text-amber-600',
       icone: (
@@ -60,7 +139,7 @@ function Dashboard() {
       <div>
         <p className="text-sm text-gray-400 flex items-center gap-2">
           <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-          Sexta-feira, 18 de setembro de 2026
+          {agora.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
         <h2 className="text-3xl font-bold text-gray-800 mt-1">
           Bom dia, {usuario?.nome_completo?.split(' ')[0] || ''} 👋
@@ -89,21 +168,27 @@ function Dashboard() {
 
       {/* Cards de métricas */}
       <div className="grid grid-cols-4 gap-4">
-        {metricas.map((item, index) => (
-          <div
-            key={index}
-            className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-shadow"
-          >
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">{item.titulo}</p>
-              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${item.corIcone}`}>
-                {item.icone}
+        {carregando ? (
+          [1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm h-28 animate-pulse" />
+          ))
+        ) : (
+          metricas.map((item, index) => (
+            <div
+              key={index}
+              className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-500">{item.titulo}</p>
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${item.corIcone}`}>
+                  {item.icone}
+                </div>
               </div>
+              <p className="text-2xl font-bold text-gray-800 mt-3">{item.valor}</p>
+              <p className={`text-xs mt-1 ${item.corVariacao}`}>{item.variacao}</p>
             </div>
-            <p className="text-2xl font-bold text-gray-800 mt-3">{item.valor}</p>
-            <p className={`text-xs mt-1 ${item.corVariacao}`}>{item.variacao}</p>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   )
