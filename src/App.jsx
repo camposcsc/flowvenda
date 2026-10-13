@@ -9,29 +9,32 @@ import Configuracoes from './pages/Configuracoes'
 import Login from './pages/Login'
 import Usuarios from './pages/Usuarios'
 import RotaProtegida from './components/RotaProtegida'
+import { UsuarioProvider } from './context/UsuarioContext'
 
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/"
-          element={
-            <RotaProtegida>
-              <MainLayout />
-            </RotaProtegida>
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="pedidos" element={<Pedidos />} />
-          <Route path="clientes" element={<Clientes />} />
-          <Route path="produtos" element={<Produtos />} />
-          <Route path="relatorios" element={<Relatorios />} />
-          <Route path="configuracoes" element={<Configuracoes />} />
-          <Route path="usuarios" element={<Usuarios />} />
-        </Route>
-      </Routes>
+      <UsuarioProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route
+            path="/"
+            element={
+              <RotaProtegida>
+                <MainLayout />
+              </RotaProtegida>
+            }
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="pedidos" element={<Pedidos />} />
+            <Route path="clientes" element={<Clientes />} />
+            <Route path="produtos" element={<Produtos />} />
+            <Route path="relatorios" element={<Relatorios />} />
+            <Route path="configuracoes" element={<Configuracoes />} />
+            <Route path="usuarios" element={<Usuarios />} />
+          </Route>
+        </Routes>
+      </UsuarioProvider>
     </BrowserRouter>
   )
 }

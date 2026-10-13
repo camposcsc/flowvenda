@@ -1,29 +1,22 @@
+import { useUsuario } from '../context/UsuarioContext'
+
 function Dashboard() {
+  const usuario = useUsuario()
+
   return (
     <div className="space-y-6">
       {/* Cabeçalho */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-400 flex items-center gap-2">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
-            Sexta-feira, 18 de setembro de 2026
-          </p>
-          <h2 className="text-3xl font-bold text-gray-800 mt-1">
-            Bom dia, Mariana 👋
-          </h2>
-          <p className="text-gray-500 mt-1">
-            Acompanhe o que está acontecendo nas suas vendas hoje.
-          </p>
-        </div>
-
-        <div className="flex gap-3">
-          <button className="flex items-center gap-2 border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">
-            ⬇ Exportar
-          </button>
-          <button className="flex items-center gap-2 bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-800">
-            + Novo pedido
-          </button>
-        </div>
+      <div>
+        <p className="text-sm text-gray-400 flex items-center gap-2">
+          <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+          Sexta-feira, 18 de setembro de 2026
+        </p>
+        <h2 className="text-3xl font-bold text-gray-800 mt-1">
+          Bom dia, {usuario?.nome_completo?.split(' ')[0] || ''} 👋
+        </h2>
+        <p className="text-gray-500 mt-1">
+          Acompanhe o que está acontecendo nas suas vendas hoje.
+        </p>
       </div>
 
       {/* Banner */}
@@ -36,15 +29,6 @@ function Dashboard() {
         <p className="text-emerald-100 mt-2 max-w-md">
           Tenha pedidos, clientes e produtos conectados em um único fluxo comercial.
         </p>
-
-        <div className="flex gap-3 mt-6">
-          <button className="bg-white text-emerald-700 px-4 py-2 rounded-lg font-medium text-sm">
-            + Emitir pedido
-          </button>
-          <button className="text-white font-medium text-sm flex items-center gap-1">
-            Acompanhar pedidos ↗
-          </button>
-        </div>
       </div>
 
       {/* Cards de métricas */}

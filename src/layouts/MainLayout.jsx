@@ -1,11 +1,20 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { useUsuario } from '../context/UsuarioContext'
+
+function gerarIniciais(nomeCompleto) {
+  if (!nomeCompleto) return '?'
+  const partes = nomeCompleto.trim().split(' ').filter(Boolean)
+  if (partes.length === 1) return partes[0].substring(0, 2).toUpperCase()
+  return (partes[0][0] + partes[1][0]).toUpperCase()
+}
 
 function MainLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const [menuAberto, setMenuAberto] = useState(false)
+  const usuario = useUsuario()
 
   const menuItems = [
     { path: '/', label: 'Visão geral' },
@@ -38,11 +47,15 @@ function MainLayout() {
             onClick={() => setMenuAberto(!menuAberto)}
             className="w-10 h-10 bg-orange-400 rounded-full flex items-center justify-center text-white font-bold"
           >
-            MS
+            {gerarIniciais(usuario?.nome_completo)}
           </button>
 
           {menuAberto && (
-            <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-50">
+            <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-50">
+              <div className="px-4 py-3 border-b border-gray-100">
+                <p className="text-sm font-medium text-gray-800 truncate">{usuario?.nome_completo}</p>
+                <p className="text-xs text-gray-400">@{usuario?.nome_usuario}</p>
+              </div>
               <button
                 onClick={handleLogout}
                 className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
