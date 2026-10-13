@@ -8,14 +8,21 @@ import Relatorios from './pages/Relatorios'
 import Configuracoes from './pages/Configuracoes'
 import Login from './pages/Login'
 import Usuarios from './pages/Usuarios'
+import RotaProtegida from './components/RotaProtegida'
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-
-        <Route path="/" element={<MainLayout />}>
+        <Route
+          path="/"
+          element={
+            <RotaProtegida>
+              <MainLayout />
+            </RotaProtegida>
+          }
+        >
           <Route index element={<Dashboard />} />
           <Route path="pedidos" element={<Pedidos />} />
           <Route path="clientes" element={<Clientes />} />
