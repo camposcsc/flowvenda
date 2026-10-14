@@ -19,6 +19,7 @@ function Pedidos() {
   const [modalProducaoAberto, setModalProducaoAberto] = useState(false)
   const [pedidoProducao, setPedidoProducao] = useState(null)
   const [quantidadesProduzidas, setQuantidadesProduzidas] = useState({})
+  const [notaFiscalEntrega, setNotaFiscalEntrega] = useState('')
 
   const [modalNFAberto, setModalNFAberto] = useState(false)
   const [pedidoNF, setPedidoNF] = useState(null)
@@ -137,6 +138,32 @@ function Pedidos() {
     return null
   }
 
+  // ---------- LISTA DE ENTREGAS/NFS DE UM PEDIDO (a partir do histórico dos itens) ----------
+  function todasEntregas(pedido) {
+    const lista = []
+    pedido.itens.forEach((item) => {
+      ;(item.historico || []).forEach((h) => {
+        lista.push({
+          produto: item.produto,
+          quantidade: h.quantidade,
+          data: h.data,
+          nota_fiscal: h.nota_fiscal || null,
+        })
+      })
+    })
+    return lista.sort((a, b) => new Date(a.data) - new Date(b.data))
+  }
+
+  function notasFiscaisDoPedido(pedido) {
+    const entregas = todasEntregas(pedido)
+    const nfs = entregas.map((e) => e.nota_fiscal).filter(Boolean)
+    const unicos = [...new Set(nfs)]
+    if (unicos.length === 0 && pedido.nota_fiscal) {
+      return [pedido.nota_fiscal]
+    }
+    return unicos
+  }
+
   // ---------- NOVO PEDIDO ----------
   function abrirModalNovoPedido() {
     setClienteSelecionado('')
@@ -194,10 +221,11 @@ function Pedidos() {
     buscarPedidos()
   }
 
-  // ---------- REGISTRAR ENTREGA ----------
+  // ---------- REGISTRAR ENTREGA (com nota fiscal própria desta entrega) ----------
   function abrirModalProducao(pedido) {
     setPedidoProducao(pedido)
     setQuantidadesProduzidas({})
+    setNotaFiscalEntrega('')
     setModalProducaoAberto(true)
   }
 
@@ -218,7 +246,37 @@ function Pedidos() {
     setQuantidadesProduzidas({ ...quantidadesProduzidas, [index]: numero })
   }
 
+  // Abate o estoque só das quantidades entregues NESTA entrega (não do total do pedido)
+  async function abaterEstoqueItens(itensEntreguesAgora) {
+    for (const item of itensEntreguesAgora) {
+      const quantidade = Number(item.quantidade || 0)
+      if (quantidade <= 0) continue
+
+      const produto = produtosLista.find((p) => p.nome === item.produto)
+      if (!produto) continue
+
+      const novoEstoque = Number(produto.estoque || 0) - quantidade
+
+      const { error } = await supabase
+        .from('produtos')
+        .update({ estoque: novoEstoque })
+        .eq('id', produto.id)
+
+      if (error) {
+        console.log(`Erro ao abater estoque do produto ${item.produto}:`, error)
+      }
+    }
+  }
+
   async function salvarProducao() {
+    if (!notaFiscalEntrega.trim()) {
+      alert('Informe o número da nota fiscal desta entrega.')
+      return
+    }
+
+    const agora = new Date().toISOString()
+    const itensEntreguesAgora = []
+
     const itensAtualizados = pedidoProducao.itens.map((item, index) => {
       const falta = item.quantidade - (item.produzido || 0)
       let qtdDigitada = Number(quantidadesProduzidas[index] || 0)
@@ -227,20 +285,26 @@ function Pedidos() {
       if (qtdDigitada < 0) qtdDigitada = 0
 
       if (qtdDigitada > 0) {
+        itensEntreguesAgora.push({ produto: item.produto, quantidade: qtdDigitada })
         return {
           ...item,
           produzido: (item.produzido || 0) + qtdDigitada,
           historico: [
             ...(item.historico || []),
-            { quantidade: qtdDigitada, data: new Date().toISOString() }
+            { quantidade: qtdDigitada, data: agora, nota_fiscal: notaFiscalEntrega.trim() }
           ]
         }
       }
       return item
     })
 
+    if (itensEntreguesAgora.length === 0) {
+      alert('Informe ao menos uma quantidade a entregar.')
+      return
+    }
+
     const tudoProduzido = itensAtualizados.every(item => item.produzido >= item.quantidade)
-    const novoStatus = tudoProduzido ? 'Pendente' : 'Em produção'
+    const novoStatus = tudoProduzido ? 'Concluído' : 'Em produção'
 
     const { error } = await supabase
       .from('pedidos')
@@ -252,8 +316,11 @@ function Pedidos() {
       return
     }
 
+    await abaterEstoqueItens(itensEntreguesAgora)
+
     setModalProducaoAberto(false)
     buscarPedidos()
+    buscarProdutos()
   }
 
   // ---------- VER DETALHES ----------
@@ -264,10 +331,9 @@ function Pedidos() {
 
   // ---------- EXCLUIR PEDIDO (somente admin) ----------
   async function handleExcluirPedido(pedido) {
-    const label = labelStatus(pedido)
     const mensagem =
       pedido.status === 'Concluído'
-        ? `Este pedido já está ENTREGUE${pedido.nota_fiscal ? ` (NF ${pedido.nota_fiscal})` : ''}. Excluir não desfaz valores já contados em relatórios anteriores, nem devolve o estoque abatido. Deseja mesmo excluir o pedido ${gerarNumeroPedido(pedido.id)}?`
+        ? `Este pedido já está ENTREGUE. Excluir não desfaz valores já contados em relatórios anteriores, nem devolve o estoque abatido. Deseja mesmo excluir o pedido ${gerarNumeroPedido(pedido.id)}?`
         : `Tem certeza que deseja excluir o pedido ${gerarNumeroPedido(pedido.id)}? Essa ação não pode ser desfeita.`
 
     const confirmar = window.confirm(mensagem)
@@ -288,7 +354,7 @@ function Pedidos() {
     buscarPedidos()
   }
 
-  // ---------- BAIXA DE ESTOQUE AO CONCLUIR PEDIDO ----------
+  // ---------- BAIXA DE ESTOQUE (uso legado: pedidos antigos presos em "Pendente") ----------
   async function baixarEstoqueDoPedido(pedido) {
     for (const item of pedido.itens) {
       const quantidadeVendida = Number(item.produzido || item.quantidade || 0)
@@ -329,6 +395,40 @@ function Pedidos() {
         <td style="text-align:right">${item.quantidade} kg</td>
       </tr>
     `).join('')
+
+    const entregasPedido = todasEntregas(pedido)
+    const linhasEntregas = entregasPedido.map(e => `
+      <tr>
+        <td>${formatarDataHora(e.data)}</td>
+        <td>${e.produto}</td>
+        <td style="text-align:right">${e.quantidade} kg</td>
+        <td>${e.nota_fiscal || '-'}</td>
+      </tr>
+    `).join('')
+
+    const blocoNotas = entregasPedido.length > 0 ? `
+      <div class="secao">
+        <h3>Entregas realizadas / Notas fiscais</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Produto</th>
+              <th style="text-align:right; width:100px">Quantidade</th>
+              <th style="width:130px">Nota fiscal</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${linhasEntregas}
+          </tbody>
+        </table>
+      </div>
+    ` : (pedido.nota_fiscal ? `
+      <div class="secao">
+        <h3>Nota fiscal</h3>
+        <p>Número: ${pedido.nota_fiscal}</p>
+      </div>
+    ` : '')
 
     const html = `
       <!DOCTYPE html>
@@ -511,12 +611,7 @@ function Pedidos() {
           </table>
         </div>
 
-        ${pedido.nota_fiscal ? `
-          <div class="secao">
-            <h3>Nota fiscal</h3>
-            <p>Número: ${pedido.nota_fiscal}</p>
-          </div>
-        ` : ''}
+        ${blocoNotas}
 
         <div class="assinaturas">
           <div class="assinatura-linha">Responsável pela entrega</div>
@@ -537,7 +632,7 @@ function Pedidos() {
     setTimeout(() => janela.print(), 300)
   }
 
-  // ---------- NOTA FISCAL ----------
+  // ---------- NOTA FISCAL (uso legado: pedidos antigos presos em "Pendente") ----------
   function abrirModalNF(pedido) {
     setPedidoNF(pedido)
     setNumeroNF('')
@@ -619,13 +714,14 @@ function Pedidos() {
               <th className="p-4">Entrega</th>
               <th className="p-4">Status</th>
               <th className="p-4">Ação</th>
-              <th className="p-4">Nota Fiscal</th>
+              <th className="p-4">Notas fiscais</th>
             </tr>
           </thead>
           <tbody>
             {pedidosFiltrados.map(pedido => {
               const label = labelStatus(pedido)
               const alertaEntrega = infoEntrega(pedido)
+              const nfs = notasFiscaisDoPedido(pedido)
               return (
                 <tr key={pedido.id} className="border-b">
                   <td className="p-4 font-medium">
@@ -714,7 +810,7 @@ function Pedidos() {
                       )}
                     </div>
                   </td>
-                  <td className="p-4">{pedido.nota_fiscal || '-'}</td>
+                  <td className="p-4">{nfs.length > 0 ? nfs.join(', ') : '-'}</td>
                 </tr>
               )
             })}
@@ -809,6 +905,18 @@ function Pedidos() {
               Pedido {gerarNumeroPedido(pedidoProducao.id)} — {pedidoProducao.cliente}
             </p>
 
+            <label className="block mb-1 font-medium">Número da nota fiscal desta entrega</label>
+            <input
+              type="text"
+              placeholder="Ex: 123456"
+              value={notaFiscalEntrega}
+              onChange={e => setNotaFiscalEntrega(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 mb-1"
+            />
+            <p className="text-xs text-gray-400 mb-4">
+              Essa nota fiscal fica vinculada às quantidades informadas abaixo. Se o restante for entregue depois, você poderá lançar uma nota fiscal diferente para aquela parte.
+            </p>
+
             {pedidoProducao.itens.map((item, index) => {
               const falta = item.quantidade - (item.produzido || 0)
               return (
@@ -823,6 +931,7 @@ function Pedidos() {
                       {item.historico.map((h, hi) => (
                         <div key={hi}>
                           Entregou {h.quantidade}kg em {formatarDataHora(h.data)}
+                          {h.nota_fiscal ? ` — NF ${h.nota_fiscal}` : ''}
                         </div>
                       ))}
                     </div>
@@ -877,12 +986,17 @@ function Pedidos() {
                 )}
               </p>
             )}
-            <p className="mb-4">
+            <p className="mb-2">
               Status:{' '}
               <span className={`px-3 py-1 rounded-full text-sm ${corStatus(labelStatus(pedidoDetalhes))}`}>
                 {labelStatus(pedidoDetalhes)}
               </span>
             </p>
+            {notasFiscaisDoPedido(pedidoDetalhes).length > 0 && (
+              <p className="text-sm text-gray-500 mb-4">
+                Notas fiscais: <strong>{notasFiscaisDoPedido(pedidoDetalhes).join(', ')}</strong>
+              </p>
+            )}
 
             {pedidoDetalhes.itens.map((item, index) => {
               const falta = item.quantidade - (item.produzido || 0)
@@ -900,6 +1014,7 @@ function Pedidos() {
                         {item.historico.map((h, hi) => (
                           <div key={hi}>
                             • Entregou {h.quantidade}kg em {formatarDataHora(h.data)}
+                            {h.nota_fiscal ? ` — NF: ${h.nota_fiscal}` : ''}
                           </div>
                         ))}
                       </div>
@@ -920,7 +1035,7 @@ function Pedidos() {
         </div>
       )}
 
-      {/* MODAL NF */}
+      {/* MODAL NF (uso legado para pedidos presos em "Pendente") */}
       {modalNFAberto && pedidoNF && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
