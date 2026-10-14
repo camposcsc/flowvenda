@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { useUsuario } from '../context/UsuarioContext'
 
@@ -18,7 +18,7 @@ function MainLayout() {
   const [buscaMobileAberta, setBuscaMobileAberta] = useState(false)
   const usuario = useUsuario()
 
-  const menuItems = [
+  const todosMenuItems = [
     { path: '/', label: 'Visão geral' },
     { path: '/pedidos', label: 'Pedidos' },
     { path: '/clientes', label: 'Clientes' },
@@ -30,6 +30,19 @@ function MainLayout() {
     { path: '/usuarios', label: 'Usuários' },
   ]
 
+  // Usuário normal (não admin) só vê a aba Pedidos no menu
+  const menuItems = usuario?.admin
+    ? todosMenuItems
+    : todosMenuItems.filter((item) => item.path === '/pedidos')
+
+  // Se um usuário normal tentar acessar outra página pelo link direto,
+  // ele é redirecionado para Pedidos automaticamente
+  useEffect(() => {
+    if (usuario && !usuario.admin && location.pathname !== '/pedidos') {
+      navigate('/pedidos', { replace: true })
+    }
+  }, [usuario, location.pathname, navigate])
+
   async function handleLogout() {
     await supabase.auth.signOut()
     navigate('/login')
@@ -38,6 +51,16 @@ function MainLayout() {
   function irPara(path) {
     setMenuMobileAberto(false)
     navigate(path)
+  }
+
+  // Enquanto não sabemos ainda se o usuário é admin ou não,
+  // mostramos uma tela de carregamento para evitar piscar a tela errada
+  if (usuario === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-400 text-sm">
+        Carregando...
+      </div>
+    )
   }
 
   return (

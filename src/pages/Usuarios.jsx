@@ -9,6 +9,7 @@ function Usuarios() {
   const [nomeCompleto, setNomeCompleto] = useState('')
   const [nomeUsuario, setNomeUsuario] = useState('')
   const [senha, setSenha] = useState('')
+  const [isAdmin, setIsAdmin] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -27,6 +28,7 @@ function Usuarios() {
     setNomeCompleto('')
     setNomeUsuario('')
     setSenha('')
+    setIsAdmin(false)
     setErro('')
     setModalAberto(true)
   }
@@ -51,7 +53,7 @@ function Usuarios() {
       const resposta = await fetch('/api/criar-usuario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nomeCompleto, nomeUsuario, senha }),
+        body: JSON.stringify({ nomeCompleto, nomeUsuario, senha, admin: isAdmin }),
       })
 
       const resultado = await resposta.json()
@@ -89,18 +91,19 @@ function Usuarios() {
             <tr>
               <th className="px-6 py-3 font-medium">Nome completo</th>
               <th className="px-6 py-3 font-medium">Usuário (login)</th>
+              <th className="px-6 py-3 font-medium">Tipo</th>
             </tr>
           </thead>
           <tbody>
             {carregando ? (
               <tr>
-                <td colSpan={2} className="px-6 py-6 text-center text-gray-400">
+                <td colSpan={3} className="px-6 py-6 text-center text-gray-400">
                   Carregando...
                 </td>
               </tr>
             ) : usuarios.length === 0 ? (
               <tr>
-                <td colSpan={2} className="px-6 py-6 text-center text-gray-400">
+                <td colSpan={3} className="px-6 py-6 text-center text-gray-400">
                   Nenhum usuário cadastrado ainda.
                 </td>
               </tr>
@@ -109,6 +112,17 @@ function Usuarios() {
                 <tr key={u.id} className="border-t border-gray-100">
                   <td className="px-6 py-3 text-gray-700">{u.nome_completo}</td>
                   <td className="px-6 py-3 text-gray-700">{u.nome_usuario}</td>
+                  <td className="px-6 py-3">
+                    {u.admin ? (
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                        Administrador
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        Normal
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
@@ -160,6 +174,19 @@ function Usuarios() {
                   placeholder="Mínimo 6 caracteres"
                 />
               </div>
+
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isAdmin}
+                  onChange={(e) => setIsAdmin(e.target.checked)}
+                  className="w-4 h-4 accent-emerald-600"
+                />
+                Este usuário é administrador?
+              </label>
+              <p className="text-xs text-gray-400 -mt-3">
+                Administradores têm acesso a todas as telas do sistema. Usuários normais veem apenas a tela de Pedidos.
+              </p>
 
               {erro && <p className="text-red-500 text-sm">{erro}</p>}
 

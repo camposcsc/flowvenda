@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Método não permitido' })
   }
 
-  const { nomeCompleto, nomeUsuario, senha } = req.body
+  const { nomeCompleto, nomeUsuario, senha, admin } = req.body
 
   if (!nomeCompleto || !nomeUsuario || !senha) {
     return res.status(400).json({ error: 'Preencha todos os campos.' })
@@ -34,6 +34,7 @@ export default async function handler(req, res) {
     {
       nome_completo: nomeCompleto,
       nome_usuario: nomeUsuario.trim().toLowerCase(),
+      admin: !!admin,
     },
   ])
 
