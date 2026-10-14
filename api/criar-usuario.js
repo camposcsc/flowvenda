@@ -30,12 +30,13 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: authError.message })
   }
 
-  // Salva também na tabela "usuarios" (para listar na tela)
+  // Salva também na tabela "usuarios" (para listar na tela), guardando o id do login
   const { error: dbError } = await supabaseAdmin.from('usuarios').insert([
     {
       nome_completo: nomeCompleto,
       nome_usuario: nomeUsuarioLimpo,
       admin: !!admin,
+      auth_id: authData.user.id,
     },
   ])
 

@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { useUsuario } from '../context/UsuarioContext'
 
 function Usuarios() {
+  const usuarioLogado = useUsuario()
   const [usuarios, setUsuarios] = useState([])
   const [carregando, setCarregando] = useState(true)
   const [modalAberto, setModalAberto] = useState(false)
+  const [excluindoId, setExcluindoId] = useState(null)
 
   const [nomeCompleto, setNomeCompleto] = useState('')
   const [nomeUsuario, setNomeUsuario] = useState('')
@@ -73,6 +76,42 @@ function Usuarios() {
     setSalvando(false)
   }
 
+  async function excluirUsuario(u) {
+    if (u.id === usuarioLogado?.id) {
+      alert('Você não pode excluir o seu próprio usuário.')
+      return
+    }
+
+    const confirmar = window.confirm(
+      `Tem certeza que deseja excluir o usuário "${u.nome_completo}"? Essa ação não pode ser desfeita.`
+    )
+    if (!confirmar) return
+
+    setExcluindoId(u.id)
+
+    try {
+      const resposta = await fetch('/api/excluir-usuario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: u.id, authId: u.auth_id || null }),
+      })
+
+      const resultado = await resposta.json()
+
+      if (!resposta.ok) {
+        alert(resultado.error || 'Erro ao excluir usuário.')
+        setExcluindoId(null)
+        return
+      }
+
+      buscarUsuarios()
+    } catch (err) {
+      alert('Erro de conexão ao excluir usuário.')
+    }
+
+    setExcluindoId(null)
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -92,18 +131,21 @@ function Usuarios() {
               <th className="px-6 py-3 font-medium">Nome completo</th>
               <th className="px-6 py-3 font-medium">Usuário (login)</th>
               <th className="px-6 py-3 font-medium">Tipo</th>
+              {usuarioLogado?.admin && (
+                <th className="px-6 py-3 font-medium">Ações</th>
+              )}
             </tr>
           </thead>
           <tbody>
             {carregando ? (
               <tr>
-                <td colSpan={3} className="px-6 py-6 text-center text-gray-400">
+                <td colSpan={4} className="px-6 py-6 text-center text-gray-400">
                   Carregando...
                 </td>
               </tr>
             ) : usuarios.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-6 py-6 text-center text-gray-400">
+                <td colSpan={4} className="px-6 py-6 text-center text-gray-400">
                   Nenhum usuário cadastrado ainda.
                 </td>
               </tr>
@@ -123,6 +165,19 @@ function Usuarios() {
                       </span>
                     )}
                   </td>
+                  {usuarioLogado?.admin && (
+                    <td className="px-6 py-3">
+                      {u.id !== usuarioLogado?.id && (
+                        <button
+                          onClick={() => excluirUsuario(u)}
+                          disabled={excluindoId === u.id}
+                          className="text-red-500 hover:text-red-700 text-xs font-medium disabled:opacity-50"
+                        >
+                          {excluindoId === u.id ? 'Excluindo...' : '🗑 Excluir'}
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))
             )}
@@ -156,9 +211,9 @@ function Usuarios() {
                 <input
                   type="text"
                   value={nomeUsuario}
-                  onChange={(e) => setNomeUsuario(e.target.value)}
+                  onChange={(e) => setNomeUsuario(e.target.value.replace(/\s/g, ''))}
                   className="w-full border border-gray-200 rounded-lg px-4 py-2 text-sm outline-none focus:border-emerald-500"
-                  placeholder="Ex: mariana"
+                  placeholder="Ex: mariana (sem espaços)"
                 />
               </div>
 
