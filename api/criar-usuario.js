@@ -16,7 +16,8 @@ export default async function handler(req, res) {
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey)
 
-  const emailFake = `${nomeUsuario.trim().toLowerCase()}@flowvenda.local`
+  const nomeUsuarioLimpo = nomeUsuario.trim().toLowerCase().replace(/\s+/g, '')
+  const emailFake = `${nomeUsuarioLimpo}@flowvenda.local`
 
   // Cria o usuário no sistema de autenticação (login)
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
@@ -33,7 +34,7 @@ export default async function handler(req, res) {
   const { error: dbError } = await supabaseAdmin.from('usuarios').insert([
     {
       nome_completo: nomeCompleto,
-      nome_usuario: nomeUsuario.trim().toLowerCase(),
+      nome_usuario: nomeUsuarioLimpo,
       admin: !!admin,
     },
   ])
