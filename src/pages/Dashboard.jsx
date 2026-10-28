@@ -126,7 +126,7 @@ function Dashboard() {
           {agora.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         </p>
         <h2 className="text-3xl font-bold text-gray-800 mt-1">
-          Bom dia, {usuario?.nome_completo?.split(' ')[0] || ''} 👋
+          Olá, {usuario?.nome_completo?.split(' ')[0] || ''} 👋
         </h2>
         <p className="text-gray-500 mt-1">
           Acompanhe o que está acontecendo nas suas vendas hoje.
