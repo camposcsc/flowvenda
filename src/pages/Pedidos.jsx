@@ -15,6 +15,7 @@ function Pedidos() {
   const [clienteSelecionado, setClienteSelecionado] = useState('')
   const [itensNovoPedido, setItensNovoPedido] = useState([{ produto: '', quantidade: '' }])
   const [dataEntrega, setDataEntrega] = useState('')
+  const [fornecedorNovoPedido, setFornecedorNovoPedido] = useState('')
 
   const [modalProducaoAberto, setModalProducaoAberto] = useState(false)
   const [pedidoProducao, setPedidoProducao] = useState(null)
@@ -171,6 +172,7 @@ function Pedidos() {
     setClienteSelecionado('')
     setItensNovoPedido([{ produto: '', quantidade: '' }])
     setDataEntrega('')
+    setFornecedorNovoPedido('')
     setModalNovoAberto(true)
   }
 
@@ -211,7 +213,8 @@ function Pedidos() {
       itens: itensFormatados,
       status: 'Em produção',
       nota_fiscal: null,
-      data_entrega: dataEntrega || null
+      data_entrega: dataEntrega || null,
+      fornecedor: fornecedorNovoPedido.trim() || null
     }])
 
     if (error) {
@@ -682,10 +685,14 @@ function Pedidos() {
     buscarProdutos()
   }
 
+  const fornecedoresUsados = [...new Set(pedidos.map(p => p.fornecedor).filter(Boolean))]
+
   const pedidosFiltrados = pedidos.filter(p => {
+    const termo = busca.toLowerCase()
     const bateBusca =
-      gerarNumeroPedido(p.id).toLowerCase().includes(busca.toLowerCase()) ||
-      p.cliente.toLowerCase().includes(busca.toLowerCase())
+      gerarNumeroPedido(p.id).toLowerCase().includes(termo) ||
+      p.cliente.toLowerCase().includes(termo) ||
+      (p.fornecedor || '').toLowerCase().includes(termo)
     const bateStatus = filtroStatus === 'Todos os status' || labelStatus(p) === filtroStatus
     return bateBusca && bateStatus
   })
@@ -705,7 +712,7 @@ function Pedidos() {
       <div className="flex gap-4 mb-6">
         <input
           type="text"
-          placeholder="Buscar por pedido ou cliente..."
+          placeholder="Buscar por pedido, cliente ou fornecedor..."
           value={busca}
           onChange={e => setBusca(e.target.value)}
           className="flex-1 border rounded-lg px-4 py-2"
@@ -751,7 +758,12 @@ function Pedidos() {
                       {gerarNumeroPedido(pedido.id)}
                     </button>
                   </td>
-                  <td className="p-4">{pedido.cliente}</td>
+                  <td className="p-4">
+                    {pedido.cliente}
+                    {pedido.fornecedor && (
+                      <div className="text-xs text-gray-400 mt-1">Fornecedor: {pedido.fornecedor}</div>
+                    )}
+                  </td>
                   <td className="p-4">
                     {pedido.itens.map((item, i) => (
                       <div key={i}>
@@ -865,6 +877,24 @@ function Pedidos() {
                 <option key={c.id} value={c.nome}>{c.nome}</option>
               ))}
             </select>
+
+            <label className="block mb-1 font-medium">Produto recebido de (fornecedor) — opcional</label>
+            <input
+              type="text"
+              list="lista-fornecedores"
+              placeholder="Ex: Frigorífico Silva"
+              value={fornecedorNovoPedido}
+              onChange={e => setFornecedorNovoPedido(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 mb-1"
+            />
+            <datalist id="lista-fornecedores">
+              {fornecedoresUsados.map(f => (
+                <option key={f} value={f} />
+              ))}
+            </datalist>
+            <p className="text-xs text-gray-400 mb-4">
+              De quem você comprou o produto deste pedido. Não aparece na impressão.
+            </p>
 
             <label className="block mb-1 font-medium">Data de entrega (opcional)</label>
             <input
@@ -1024,6 +1054,11 @@ function Pedidos() {
                 {labelStatus(pedidoDetalhes)}
               </span>
             </p>
+            {pedidoDetalhes.fornecedor && (
+              <p className="text-sm text-gray-500 mb-1">
+                Produto recebido de: <strong>{pedidoDetalhes.fornecedor}</strong>
+              </p>
+            )}
             {notasFiscaisDoPedido(pedidoDetalhes).length > 0 && (
               <p className="text-sm text-gray-500 mb-1">
                 Notas fiscais: <strong>{notasFiscaisDoPedido(pedidoDetalhes).join(', ')}</strong>
