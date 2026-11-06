@@ -2,6 +2,15 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { useUsuario } from '../context/UsuarioContext'
 
+// Remove acentos e deixa minúsculo, para a busca funcionar com "joao" e "João"
+function normalizarTexto(texto) {
+  return (texto || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
 function Pedidos() {
   const usuario = useUsuario()
   const [pedidos, setPedidos] = useState([])
@@ -13,6 +22,8 @@ function Pedidos() {
 
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
   const [clienteSelecionado, setClienteSelecionado] = useState('')
+  const [buscaCliente, setBuscaCliente] = useState('')
+  const [mostrarListaClientes, setMostrarListaClientes] = useState(false)
   const [itensNovoPedido, setItensNovoPedido] = useState([{ produto: '', quantidade: '' }])
   const [dataEntrega, setDataEntrega] = useState('')
   const [fornecedorNovoPedido, setFornecedorNovoPedido] = useState('')
@@ -170,10 +181,18 @@ function Pedidos() {
 
   function abrirModalNovoPedido() {
     setClienteSelecionado('')
+    setBuscaCliente('')
+    setMostrarListaClientes(false)
     setItensNovoPedido([{ produto: '', quantidade: '' }])
     setDataEntrega('')
     setFornecedorNovoPedido('')
     setModalNovoAberto(true)
+  }
+
+  function selecionarCliente(nome) {
+    setClienteSelecionado(nome)
+    setBuscaCliente(nome)
+    setMostrarListaClientes(false)
   }
 
   function adicionarLinhaItem() {
@@ -191,8 +210,14 @@ function Pedidos() {
   }
 
   async function salvarNovoPedido() {
-    if (!clienteSelecionado) {
-      alert('Selecione um cliente')
+    // Se a pessoa digitou o nome exato sem clicar na lista, aceita mesmo assim
+    const nomeCliente =
+      clienteSelecionado ||
+      clientesLista.find((c) => normalizarTexto(c.nome) === normalizarTexto(buscaCliente))?.nome ||
+      ''
+
+    if (!nomeCliente) {
+      alert('Selecione um cliente na lista')
       return
     }
     const itensValidos = itensNovoPedido.filter(i => i.produto && i.quantidade)
@@ -210,7 +235,7 @@ function Pedidos() {
 
     // O fornecedor é opcional: só é enviado se tiver sido preenchido
     const dadosPedido = {
-      cliente: clienteSelecionado,
+      cliente: nomeCliente,
       itens: itensFormatados,
       status: 'Em produção',
       nota_fiscal: null,
@@ -692,6 +717,11 @@ function Pedidos() {
 
   const fornecedoresUsados = [...new Set(pedidos.map(p => p.fornecedor).filter(Boolean))]
 
+  // Clientes filtrados pelo que foi digitado no campo de busca (máximo 50 na lista)
+  const clientesFiltradosModal = clientesLista
+    .filter(c => normalizarTexto(c.nome).includes(normalizarTexto(buscaCliente)))
+    .slice(0, 50)
+
   const pedidosFiltrados = pedidos.filter(p => {
     const termo = busca.toLowerCase()
     const bateBusca =
@@ -872,16 +902,49 @@ function Pedidos() {
             )}
 
             <label className="block mb-1 font-medium">Cliente</label>
-            <select
-              value={clienteSelecionado}
-              onChange={e => setClienteSelecionado(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 mb-4"
-            >
-              <option value="">Selecione um cliente</option>
-              {clientesLista.map(c => (
-                <option key={c.id} value={c.nome}>{c.nome}</option>
-              ))}
-            </select>
+            <div className="relative mb-4">
+              <input
+                type="text"
+                placeholder="Digite o nome do cliente para buscar..."
+                value={buscaCliente}
+                onChange={e => {
+                  setBuscaCliente(e.target.value)
+                  setClienteSelecionado('')
+                  setMostrarListaClientes(true)
+                }}
+                onFocus={() => setMostrarListaClientes(true)}
+                onBlur={() => setMostrarListaClientes(false)}
+                autoComplete="off"
+                className="w-full border rounded-lg px-3 py-2"
+              />
+              {clienteSelecionado && (
+                <p className="text-xs text-emerald-600 mt-1">Cliente selecionado: {clienteSelecionado}</p>
+              )}
+
+              {mostrarListaClientes && (
+                <div className="absolute z-10 w-full bg-white border rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                  {clientesFiltradosModal.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-gray-400">Nenhum cliente encontrado.</p>
+                  ) : (
+                    clientesFiltradosModal.map(c => (
+                      <button
+                        type="button"
+                        key={c.id}
+                        onMouseDown={e => {
+                          e.preventDefault()
+                          selecionarCliente(c.nome)
+                        }}
+                        className={`block w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 ${
+                          clienteSelecionado === c.nome ? 'bg-emerald-100 font-medium' : ''
+                        }`}
+                      >
+                        {c.nome}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
 
             <label className="block mb-1 font-medium">Produto recebido de (fornecedor) — opcional</label>
             <input
