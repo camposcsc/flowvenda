@@ -208,14 +208,19 @@ function Pedidos() {
       historico: []
     }))
 
-    const { error } = await supabase.from('pedidos').insert([{
+    // O fornecedor é opcional: só é enviado se tiver sido preenchido
+    const dadosPedido = {
       cliente: clienteSelecionado,
       itens: itensFormatados,
       status: 'Em produção',
       nota_fiscal: null,
       data_entrega: dataEntrega || null,
-      fornecedor: fornecedorNovoPedido.trim() || null
-    }])
+    }
+    if (fornecedorNovoPedido.trim()) {
+      dadosPedido.fornecedor = fornecedorNovoPedido.trim()
+    }
+
+    const { error } = await supabase.from('pedidos').insert([dadosPedido])
 
     if (error) {
       alert('Erro ao salvar pedido: ' + error.message)
