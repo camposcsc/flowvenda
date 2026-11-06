@@ -99,7 +99,7 @@ function Produtos() {
     setSalvando(true)
 
     const dadosProduto = {
-      nome,
+      nome: nome.trim().toUpperCase(),
       categoria,
       grupo: categoria === 'Produto' ? grupo : null,
       preco: Number(preco) || 0,
@@ -292,7 +292,7 @@ function Produtos() {
               placeholder="Nome do produto ou serviço"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-4 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full border border-gray-200 rounded-lg px-4 py-2 text-sm mb-3 uppercase focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
 
             <label className="text-sm text-gray-600 mb-1 block">Categoria</label>
@@ -316,6 +316,7 @@ function Produtos() {
                   <option>Suíno</option>
                   <option>Bovino</option>
                   <option>Ave</option>
+                  <option>Peixe</option>
                 </select>
               </>
             )}
