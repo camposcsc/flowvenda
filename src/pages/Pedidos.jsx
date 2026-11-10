@@ -1,4 +1,3 @@
-```javascript
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { useUsuario } from '../context/UsuarioContext'
@@ -1501,4 +1500,3 @@ function Pedidos() {
 }
 
 export default Pedidos
-```
