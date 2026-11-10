@@ -1,3 +1,4 @@
+```javascript
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { useUsuario } from '../context/UsuarioContext'
@@ -15,6 +16,21 @@ function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+// Evita que texto digitado quebre o HTML da impressão
+function escaparHtml(texto) {
+  return String(texto || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+// Resumo curto da observação para a tabela
+function resumoObs(texto) {
+  const t = (texto || '').trim()
+  if (t.length <= 60) return t
+  return t.slice(0, 60) + '...'
+}
+
 function Pedidos() {
   const usuario = useUsuario()
   const [pedidos, setPedidos] = useState([])
@@ -26,12 +42,14 @@ function Pedidos() {
 
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
   const [origemDuplicacao, setOrigemDuplicacao] = useState(null)
+  const [pedidoEditando, setPedidoEditando] = useState(null)
   const [clienteSelecionado, setClienteSelecionado] = useState('')
   const [buscaCliente, setBuscaCliente] = useState('')
   const [mostrarListaClientes, setMostrarListaClientes] = useState(false)
   const [itensNovoPedido, setItensNovoPedido] = useState([{ produto: '', quantidade: '', preco: '' }])
   const [dataEntrega, setDataEntrega] = useState('')
   const [fornecedorNovoPedido, setFornecedorNovoPedido] = useState('')
+  const [obsPedido, setObsPedido] = useState('')
 
   const [modalProducaoAberto, setModalProducaoAberto] = useState(false)
   const [pedidoProducao, setPedidoProducao] = useState(null)
@@ -191,19 +209,28 @@ function Pedidos() {
     return [...new Set(nomes)]
   }
 
+  function fecharModalNovo() {
+    setModalNovoAberto(false)
+    setPedidoEditando(null)
+    setOrigemDuplicacao(null)
+  }
+
   function abrirModalNovoPedido() {
     setOrigemDuplicacao(null)
+    setPedidoEditando(null)
     setClienteSelecionado('')
     setBuscaCliente('')
     setMostrarListaClientes(false)
     setItensNovoPedido([{ produto: '', quantidade: '', preco: '' }])
     setDataEntrega('')
     setFornecedorNovoPedido('')
+    setObsPedido('')
     setModalNovoAberto(true)
   }
 
   // Abre o formulário de Novo pedido já preenchido com os dados do pedido escolhido
   function duplicarPedido(pedido) {
+    setPedidoEditando(null)
     setClienteSelecionado(pedido.cliente)
     setBuscaCliente(pedido.cliente)
     setMostrarListaClientes(false)
@@ -220,7 +247,38 @@ function Pedidos() {
     )
     setDataEntrega('')
     setFornecedorNovoPedido(pedido.fornecedor || '')
+    setObsPedido(pedido.obs || '')
     setOrigemDuplicacao(gerarNumeroPedido(pedido.id))
+    setModalNovoAberto(true)
+  }
+
+  // Abre o formulário preenchido para editar um pedido que ainda não foi concluído
+  function abrirModalEdicao(pedido) {
+    if (pedido.status === 'Concluído') {
+      alert('Pedidos concluídos não podem ser editados. Use 📋 Duplicar para criar um novo pedido.')
+      return
+    }
+    setOrigemDuplicacao(null)
+    setPedidoEditando(pedido)
+    setClienteSelecionado(pedido.cliente)
+    setBuscaCliente(pedido.cliente)
+    setMostrarListaClientes(false)
+    setItensNovoPedido(
+      pedido.itens.map((item) => {
+        const produtoAtual = produtosLista.find((p) => p.nome === item.produto)
+        const precoInicial = item.preco != null ? item.preco : (produtoAtual?.preco ?? '')
+        return {
+          produto: item.produto,
+          quantidade: String(item.quantidade),
+          preco: String(precoInicial),
+          produzido: item.produzido || 0,
+          historico: item.historico || [],
+        }
+      })
+    )
+    setDataEntrega(pedido.data_entrega || '')
+    setFornecedorNovoPedido(pedido.fornecedor || '')
+    setObsPedido(pedido.obs || '')
     setModalNovoAberto(true)
   }
 
@@ -261,6 +319,7 @@ function Pedidos() {
     0
   )
 
+  // Serve para criar um pedido novo e também para salvar a edição
   async function salvarNovoPedido() {
     // Se a pessoa digitou o nome exato sem clicar na lista, aceita mesmo assim
     const nomeCliente =
@@ -272,6 +331,20 @@ function Pedidos() {
       alert('Selecione um cliente na lista')
       return
     }
+
+    // Na edição, itens já entregues não podem ficar abaixo do que foi entregue
+    if (pedidoEditando) {
+      for (const i of itensNovoPedido) {
+        const jaEntregue = Number(i.produzido || 0)
+        if (jaEntregue > 0 && Number(i.quantidade || 0) < jaEntregue) {
+          alert(
+            `O item ${i.produto} já teve ${jaEntregue}kg entregues. A quantidade não pode ser menor que isso.`
+          )
+          return
+        }
+      }
+    }
+
     const itensValidos = itensNovoPedido.filter(i => i.produto && i.quantidade)
     if (itensValidos.length === 0) {
       alert('Adicione pelo menos um item com quantidade')
@@ -290,12 +363,43 @@ function Pedidos() {
         produto: i.produto,
         quantidade: Number(i.quantidade),
         preco: precoFinal,
-        produzido: 0,
-        historico: []
+        produzido: Number(i.produzido || 0),
+        historico: i.historico || []
       }
     })
 
-    // O fornecedor é opcional: só é enviado se tiver sido preenchido
+    if (pedidoEditando) {
+      const tudoEntregue = itensFormatados.every(item => item.produzido >= item.quantidade)
+      let novoStatus = pedidoEditando.status
+      if (pedidoEditando.status === 'Em produção' && tudoEntregue) {
+        novoStatus = 'Concluído'
+      }
+
+      const dadosEdicao = {
+        cliente: nomeCliente,
+        itens: itensFormatados,
+        status: novoStatus,
+        data_entrega: dataEntrega || null,
+        fornecedor: fornecedorNovoPedido.trim() || null,
+        obs: obsPedido.trim() || null,
+      }
+
+      const { error } = await supabase
+        .from('pedidos')
+        .update(dadosEdicao)
+        .eq('id', pedidoEditando.id)
+
+      if (error) {
+        alert('Erro ao salvar alterações: ' + error.message)
+        return
+      }
+
+      fecharModalNovo()
+      buscarPedidos()
+      return
+    }
+
+    // O fornecedor e a observação são opcionais: só são enviados se tiverem sido preenchidos
     const dadosPedido = {
       cliente: nomeCliente,
       itens: itensFormatados,
@@ -306,6 +410,9 @@ function Pedidos() {
     if (fornecedorNovoPedido.trim()) {
       dadosPedido.fornecedor = fornecedorNovoPedido.trim()
     }
+    if (obsPedido.trim()) {
+      dadosPedido.obs = obsPedido.trim()
+    }
 
     const { error } = await supabase.from('pedidos').insert([dadosPedido])
 
@@ -314,8 +421,7 @@ function Pedidos() {
       return
     }
 
-    setModalNovoAberto(false)
-    setOrigemDuplicacao(null)
+    fecharModalNovo()
     buscarPedidos()
   }
 
@@ -537,6 +643,13 @@ function Pedidos() {
       </div>
     ` : '')
 
+    const blocoObs = pedido.obs ? `
+      <div class="secao">
+        <h3>Observações</h3>
+        <p class="obs-texto">${escaparHtml(pedido.obs)}</p>
+      </div>
+    ` : ''
+
     const textoRecebedor = receptores.length > 0
       ? receptores.join(', ')
       : '________________________________'
@@ -624,6 +737,11 @@ function Pedidos() {
           .dados-cliente p {
             margin: 3px 0;
             font-size: 14px;
+          }
+          .obs-texto {
+            font-size: 14px;
+            white-space: pre-wrap;
+            margin: 4px 0;
           }
           table {
             width: 100%;
@@ -726,6 +844,8 @@ function Pedidos() {
           </table>
         </div>
 
+        ${blocoObs}
+
         ${blocoNotas}
 
         <p class="recebido-por"><strong>Recebido por:</strong> ${textoRecebedor}</p>
@@ -790,7 +910,8 @@ function Pedidos() {
     const bateBusca =
       gerarNumeroPedido(p.id).toLowerCase().includes(termo) ||
       p.cliente.toLowerCase().includes(termo) ||
-      (p.fornecedor || '').toLowerCase().includes(termo)
+      (p.fornecedor || '').toLowerCase().includes(termo) ||
+      (p.obs || '').toLowerCase().includes(termo)
     const bateStatus = filtroStatus === 'Todos os status' || labelStatus(p) === filtroStatus
     return bateBusca && bateStatus
   })
@@ -810,7 +931,7 @@ function Pedidos() {
       <div className="flex gap-4 mb-6">
         <input
           type="text"
-          placeholder="Buscar por pedido, cliente ou fornecedor..."
+          placeholder="Buscar por pedido, cliente, fornecedor ou observação..."
           value={busca}
           onChange={e => setBusca(e.target.value)}
           className="flex-1 border rounded-lg px-4 py-2"
@@ -861,6 +982,14 @@ function Pedidos() {
                     {pedido.cliente}
                     {pedido.fornecedor && (
                       <div className="text-xs text-gray-400 mt-1">Fornecedor: {pedido.fornecedor}</div>
+                    )}
+                    {pedido.obs && (
+                      <div
+                        className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1 mt-1 max-w-[260px]"
+                        title={pedido.obs}
+                      >
+                        📝 {resumoObs(pedido.obs)}
+                      </div>
                     )}
                   </td>
 
@@ -917,6 +1046,11 @@ function Pedidos() {
                       <button onClick={() => abrirModalDetalhes(pedido)} className="text-gray-600 hover:underline">
                         👁 Detalhes
                       </button>
+                      {pedido.status !== 'Concluído' && (
+                        <button onClick={() => abrirModalEdicao(pedido)} className="text-amber-600 hover:underline">
+                          ✏️ Editar
+                        </button>
+                      )}
                       <button onClick={() => duplicarPedido(pedido)} className="text-emerald-700 hover:underline">
                         📋 Duplicar
                       </button>
@@ -972,11 +1106,21 @@ function Pedidos() {
         </table>
       </div>
 
-      {/* MODAL NOVO PEDIDO */}
+      {/* MODAL NOVO PEDIDO / EDITAR PEDIDO */}
       {modalNovoAberto && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">Novo pedido</h2>
+            <h2 className="text-xl font-bold mb-4">
+              {pedidoEditando
+                ? `Editar pedido ${gerarNumeroPedido(pedidoEditando.id)}`
+                : 'Novo pedido'}
+            </h2>
+
+            {pedidoEditando && (
+              <p className="bg-emerald-50 text-emerald-700 p-2 rounded mb-3 text-sm">
+                Você pode alterar cliente, fornecedor, data, preços, observação e itens. Itens que já tiveram entrega não podem ser removidos nem reduzidos abaixo do que foi entregue.
+              </p>
+            )}
 
             {origemDuplicacao && (
               <p className="bg-blue-50 text-blue-700 p-2 rounded mb-3 text-sm">
@@ -1067,41 +1211,53 @@ function Pedidos() {
             />
 
             <label className="block mb-1 font-medium">Itens</label>
-            {itensNovoPedido.map((item, index) => (
-              <div key={index} className="flex gap-2 mb-2">
-                <select
-                  value={item.produto}
-                  onChange={e => selecionarProdutoNoItem(index, e.target.value)}
-                  className="flex-1 min-w-0 border rounded-lg px-3 py-2"
-                >
-                  <option value="">Selecione um produto</option>
-                  {produtosLista.map(p => (
-                    <option key={p.id} value={p.nome}>{p.nome}</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="Qtd (kg)"
-                  value={item.quantidade}
-                  onChange={e => atualizarItemNovoPedido(index, 'quantidade', e.target.value)}
-                  className="w-24 border rounded-lg px-2 py-2"
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="R$/kg"
-                  title="Preço deste cliente (por kg)"
-                  value={item.preco}
-                  onChange={e => atualizarItemNovoPedido(index, 'preco', e.target.value)}
-                  className="w-28 border rounded-lg px-2 py-2"
-                />
-                {itensNovoPedido.length > 1 && (
-                  <button onClick={() => removerLinhaItem(index)} className="text-red-500">✕</button>
-                )}
-              </div>
-            ))}
+            {itensNovoPedido.map((item, index) => {
+              const jaEntregue = Number(item.produzido || 0)
+              const travado = jaEntregue > 0
+              return (
+                <div key={index} className="mb-3">
+                  <div className="flex gap-2">
+                    <select
+                      value={item.produto}
+                      onChange={e => selecionarProdutoNoItem(index, e.target.value)}
+                      disabled={travado}
+                      className="flex-1 min-w-0 border rounded-lg px-3 py-2 disabled:bg-gray-100"
+                    >
+                      <option value="">Selecione um produto</option>
+                      {produtosLista.map(p => (
+                        <option key={p.id} value={p.nome}>{p.nome}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min={travado ? jaEntregue : 0}
+                      placeholder="Qtd (kg)"
+                      value={item.quantidade}
+                      onChange={e => atualizarItemNovoPedido(index, 'quantidade', e.target.value)}
+                      className="w-24 border rounded-lg px-2 py-2"
+                    />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="R$/kg"
+                      title="Preço deste cliente (por kg)"
+                      value={item.preco}
+                      onChange={e => atualizarItemNovoPedido(index, 'preco', e.target.value)}
+                      className="w-28 border rounded-lg px-2 py-2"
+                    />
+                    {itensNovoPedido.length > 1 && !travado && (
+                      <button onClick={() => removerLinhaItem(index)} className="text-red-500">✕</button>
+                    )}
+                  </div>
+                  {travado && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      Já entregue: {jaEntregue}kg. Este item não pode ser removido nem reduzido abaixo disso.
+                    </p>
+                  )}
+                </div>
+              )
+            })}
             <p className="text-xs text-gray-400 mb-2">
               O preço (R$/kg) vem do cadastro do produto. Altere se este cliente tiver outro valor.
             </p>
@@ -1115,12 +1271,22 @@ function Pedidos() {
               </p>
             )}
 
+            <label className="block mb-1 mt-2 font-medium">Observações (opcional)</label>
+            <textarea
+              rows={3}
+              placeholder="Ex: Entregar pela manhã, ligar antes de chegar..."
+              value={obsPedido}
+              onChange={e => setObsPedido(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 mb-1"
+            />
+            <p className="text-xs text-gray-400 mb-2">Aparece na tabela, nos detalhes e na impressão do pedido.</p>
+
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setModalNovoAberto(false)} className="px-4 py-2 rounded-lg border">
+              <button onClick={fecharModalNovo} className="px-4 py-2 rounded-lg border">
                 Cancelar
               </button>
               <button onClick={salvarNovoPedido} className="px-4 py-2 rounded-lg bg-emerald-600 text-white">
-                Salvar pedido
+                {pedidoEditando ? 'Salvar alterações' : 'Salvar pedido'}
               </button>
             </div>
           </div>
@@ -1251,6 +1417,12 @@ function Pedidos() {
                 Recebido por: <strong>{receptoresDoPedido(pedidoDetalhes).join(', ')}</strong>
               </p>
             )}
+            {pedidoDetalhes.obs && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                <p className="text-xs font-medium text-amber-700 mb-1">📝 Observações</p>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{pedidoDetalhes.obs}</p>
+              </div>
+            )}
             {pedidoDetalhes.itens.some(item => item.preco != null) && (
               <p className="text-sm font-semibold text-gray-800 mb-4">
                 Valor total do pedido: {formatarMoeda(valorTotalPedido(pedidoDetalhes))}
@@ -1329,3 +1501,4 @@ function Pedidos() {
 }
 
 export default Pedidos
+```
