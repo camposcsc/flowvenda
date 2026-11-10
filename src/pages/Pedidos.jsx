@@ -11,6 +11,10 @@ function normalizarTexto(texto) {
     .trim()
 }
 
+function formatarMoeda(valor) {
+  return Number(valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
 function Pedidos() {
   const usuario = useUsuario()
   const [pedidos, setPedidos] = useState([])
@@ -21,10 +25,11 @@ function Pedidos() {
   const [filtroStatus, setFiltroStatus] = useState('Todos os status')
 
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
+  const [origemDuplicacao, setOrigemDuplicacao] = useState(null)
   const [clienteSelecionado, setClienteSelecionado] = useState('')
   const [buscaCliente, setBuscaCliente] = useState('')
   const [mostrarListaClientes, setMostrarListaClientes] = useState(false)
-  const [itensNovoPedido, setItensNovoPedido] = useState([{ produto: '', quantidade: '' }])
+  const [itensNovoPedido, setItensNovoPedido] = useState([{ produto: '', quantidade: '', preco: '' }])
   const [dataEntrega, setDataEntrega] = useState('')
   const [fornecedorNovoPedido, setFornecedorNovoPedido] = useState('')
 
@@ -113,6 +118,13 @@ function Pedidos() {
     return pedido.itens.reduce((soma, item) => soma + Number(item.produzido || 0), 0)
   }
 
+  function valorTotalPedido(pedido) {
+    return pedido.itens.reduce(
+      (soma, item) => soma + Number(item.preco || 0) * Number(item.quantidade || 0),
+      0
+    )
+  }
+
   function labelStatus(pedido) {
     if (pedido.status === 'Concluído') return 'Entregue'
     const produzido = totalProduzido(pedido)
@@ -180,12 +192,35 @@ function Pedidos() {
   }
 
   function abrirModalNovoPedido() {
+    setOrigemDuplicacao(null)
     setClienteSelecionado('')
     setBuscaCliente('')
     setMostrarListaClientes(false)
-    setItensNovoPedido([{ produto: '', quantidade: '' }])
+    setItensNovoPedido([{ produto: '', quantidade: '', preco: '' }])
     setDataEntrega('')
     setFornecedorNovoPedido('')
+    setModalNovoAberto(true)
+  }
+
+  // Abre o formulário de Novo pedido já preenchido com os dados do pedido escolhido
+  function duplicarPedido(pedido) {
+    setClienteSelecionado(pedido.cliente)
+    setBuscaCliente(pedido.cliente)
+    setMostrarListaClientes(false)
+    setItensNovoPedido(
+      pedido.itens.map((item) => {
+        const produtoAtual = produtosLista.find((p) => p.nome === item.produto)
+        const precoInicial = item.preco != null ? item.preco : (produtoAtual?.preco ?? '')
+        return {
+          produto: item.produto,
+          quantidade: String(item.quantidade),
+          preco: String(precoInicial),
+        }
+      })
+    )
+    setDataEntrega('')
+    setFornecedorNovoPedido(pedido.fornecedor || '')
+    setOrigemDuplicacao(gerarNumeroPedido(pedido.id))
     setModalNovoAberto(true)
   }
 
@@ -196,7 +231,7 @@ function Pedidos() {
   }
 
   function adicionarLinhaItem() {
-    setItensNovoPedido([...itensNovoPedido, { produto: '', quantidade: '' }])
+    setItensNovoPedido([...itensNovoPedido, { produto: '', quantidade: '', preco: '' }])
   }
 
   function removerLinhaItem(index) {
@@ -204,10 +239,27 @@ function Pedidos() {
   }
 
   function atualizarItemNovoPedido(index, campo, valor) {
-    const novos = [...itensNovoPedido]
-    novos[index][campo] = valor
-    setItensNovoPedido(novos)
+    setItensNovoPedido(
+      itensNovoPedido.map((item, i) => (i === index ? { ...item, [campo]: valor } : item))
+    )
   }
+
+  // Ao escolher o produto, o preço do cadastro é preenchido automaticamente
+  function selecionarProdutoNoItem(index, nomeProduto) {
+    const produto = produtosLista.find((p) => p.nome === nomeProduto)
+    setItensNovoPedido(
+      itensNovoPedido.map((item, i) =>
+        i === index
+          ? { ...item, produto: nomeProduto, preco: produto ? String(produto.preco ?? '') : '' }
+          : item
+      )
+    )
+  }
+
+  const totalNovoPedido = itensNovoPedido.reduce(
+    (soma, item) => soma + (Number(item.quantidade) || 0) * (Number(item.preco) || 0),
+    0
+  )
 
   async function salvarNovoPedido() {
     // Se a pessoa digitou o nome exato sem clicar na lista, aceita mesmo assim
@@ -226,12 +278,22 @@ function Pedidos() {
       return
     }
 
-    const itensFormatados = itensValidos.map(i => ({
-      produto: i.produto,
-      quantidade: Number(i.quantidade),
-      produzido: 0,
-      historico: []
-    }))
+    const itensFormatados = itensValidos.map(i => {
+      const produtoCadastro = produtosLista.find((p) => p.nome === i.produto)
+      // Se o preço ficou em branco, usa o preço do cadastro do produto
+      const precoFinal =
+        i.preco !== '' && i.preco != null
+          ? Number(i.preco)
+          : Number(produtoCadastro?.preco || 0)
+
+      return {
+        produto: i.produto,
+        quantidade: Number(i.quantidade),
+        preco: precoFinal,
+        produzido: 0,
+        historico: []
+      }
+    })
 
     // O fornecedor é opcional: só é enviado se tiver sido preenchido
     const dadosPedido = {
@@ -253,6 +315,7 @@ function Pedidos() {
     }
 
     setModalNovoAberto(false)
+    setOrigemDuplicacao(null)
     buscarPedidos()
   }
 
@@ -854,6 +917,9 @@ function Pedidos() {
                       <button onClick={() => abrirModalDetalhes(pedido)} className="text-gray-600 hover:underline">
                         👁 Detalhes
                       </button>
+                      <button onClick={() => duplicarPedido(pedido)} className="text-emerald-700 hover:underline">
+                        📋 Duplicar
+                      </button>
                       {pedido.status === 'Em produção' && (
                         <>
                           <button
@@ -911,6 +977,12 @@ function Pedidos() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">Novo pedido</h2>
+
+            {origemDuplicacao && (
+              <p className="bg-blue-50 text-blue-700 p-2 rounded mb-3 text-sm">
+                Duplicando o pedido {origemDuplicacao}. Revise cliente, itens, preços e data antes de salvar.
+              </p>
+            )}
 
             {clientesLista.length === 0 && (
               <p className="bg-yellow-100 text-yellow-700 p-2 rounded mb-3 text-sm">
@@ -999,8 +1071,8 @@ function Pedidos() {
               <div key={index} className="flex gap-2 mb-2">
                 <select
                   value={item.produto}
-                  onChange={e => atualizarItemNovoPedido(index, 'produto', e.target.value)}
-                  className="flex-1 border rounded-lg px-3 py-2"
+                  onChange={e => selecionarProdutoNoItem(index, e.target.value)}
+                  className="flex-1 min-w-0 border rounded-lg px-3 py-2"
                 >
                   <option value="">Selecione um produto</option>
                   {produtosLista.map(p => (
@@ -1009,19 +1081,39 @@ function Pedidos() {
                 </select>
                 <input
                   type="number"
+                  min="0"
                   placeholder="Qtd (kg)"
                   value={item.quantidade}
                   onChange={e => atualizarItemNovoPedido(index, 'quantidade', e.target.value)}
-                  className="w-28 border rounded-lg px-3 py-2"
+                  className="w-24 border rounded-lg px-2 py-2"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="R$/kg"
+                  title="Preço deste cliente (por kg)"
+                  value={item.preco}
+                  onChange={e => atualizarItemNovoPedido(index, 'preco', e.target.value)}
+                  className="w-28 border rounded-lg px-2 py-2"
                 />
                 {itensNovoPedido.length > 1 && (
                   <button onClick={() => removerLinhaItem(index)} className="text-red-500">✕</button>
                 )}
               </div>
             ))}
+            <p className="text-xs text-gray-400 mb-2">
+              O preço (R$/kg) vem do cadastro do produto. Altere se este cliente tiver outro valor.
+            </p>
             <button onClick={adicionarLinhaItem} className="text-emerald-600 text-sm mb-4">
               + Adicionar item
             </button>
+
+            {totalNovoPedido > 0 && (
+              <p className="text-sm text-gray-700 mb-2">
+                Total estimado: <strong>{formatarMoeda(totalNovoPedido)}</strong>
+              </p>
+            )}
 
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setModalNovoAberto(false)} className="px-4 py-2 rounded-lg border">
@@ -1159,15 +1251,25 @@ function Pedidos() {
                 Recebido por: <strong>{receptoresDoPedido(pedidoDetalhes).join(', ')}</strong>
               </p>
             )}
+            {pedidoDetalhes.itens.some(item => item.preco != null) && (
+              <p className="text-sm font-semibold text-gray-800 mb-4">
+                Valor total do pedido: {formatarMoeda(valorTotalPedido(pedidoDetalhes))}
+              </p>
+            )}
 
             {pedidoDetalhes.itens.map((item, index) => {
               const falta = item.quantidade - (item.produzido || 0)
               return (
                 <div key={index} className="border rounded-lg p-3 mb-3">
                   <p className="font-medium">{item.produto}</p>
-                  <p className="text-sm text-gray-500 mb-2">
+                  <p className="text-sm text-gray-500">
                     Pedido: {item.quantidade}kg · Entregue: {item.produzido || 0}kg · Falta: {falta > 0 ? falta : 0}kg
                   </p>
+                  {item.preco != null && (
+                    <p className="text-sm text-gray-500 mb-2">
+                      Preço: {formatarMoeda(item.preco)}/kg · Total do item: {formatarMoeda(Number(item.preco) * Number(item.quantidade))}
+                    </p>
+                  )}
 
                   {item.historico && item.historico.length > 0 ? (
                     <div>
