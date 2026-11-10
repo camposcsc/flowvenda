@@ -765,73 +765,92 @@ function Pedidos() {
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="border-b text-gray-500 text-sm">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-gray-50 border-b text-gray-500 text-xs uppercase tracking-wide">
             <tr>
-              <th className="p-4">Pedido</th>
-              <th className="p-4">Cliente</th>
-              <th className="p-4">Itens</th>
-              <th className="p-4">Dados</th>
-              <th className="p-4">Entrega</th>
-              <th className="p-4">Status</th>
-              <th className="p-4">Ação</th>
-              <th className="p-4">Notas fiscais</th>
+              <th className="px-4 py-3 font-medium whitespace-nowrap">Pedido</th>
+              <th className="px-4 py-3 font-medium min-w-[200px]">Cliente</th>
+              <th className="px-4 py-3 font-medium min-w-[260px]">Itens</th>
+              <th className="px-4 py-3 font-medium whitespace-nowrap">Criado em</th>
+              <th className="px-4 py-3 font-medium whitespace-nowrap">Entrega</th>
+              <th className="px-4 py-3 font-medium whitespace-nowrap">Status</th>
+              <th className="px-4 py-3 font-medium whitespace-nowrap">Ações</th>
+              <th className="px-4 py-3 font-medium whitespace-nowrap">Notas fiscais</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-gray-100">
             {pedidosFiltrados.map(pedido => {
               const label = labelStatus(pedido)
               const alertaEntrega = infoEntrega(pedido)
               const nfs = notasFiscaisDoPedido(pedido)
               return (
-                <tr key={pedido.id} className="border-b">
-                  <td className="p-4 font-medium">
+                <tr key={pedido.id} className="hover:bg-gray-50 align-top">
+                  <td className="px-4 py-4 font-medium whitespace-nowrap">
                     <button
                       onClick={() => abrirModalDetalhes(pedido)}
-                      className="text-blue-600 hover:underline"
+                      className="text-blue-600 hover:underline font-semibold"
                     >
                       {gerarNumeroPedido(pedido.id)}
                     </button>
                   </td>
-                  <td className="p-4">
+
+                  <td className="px-4 py-4 text-gray-800">
                     {pedido.cliente}
                     {pedido.fornecedor && (
                       <div className="text-xs text-gray-400 mt-1">Fornecedor: {pedido.fornecedor}</div>
                     )}
                   </td>
-                  <td className="p-4">
-                    {pedido.itens.map((item, i) => (
-                      <div key={i}>
-                        {item.produto} (
-                        {pedido.status === 'Em produção'
-                          ? `${item.produzido || 0}/${item.quantidade}kg`
-                          : `${item.quantidade}kg`}
-                        )
-                      </div>
-                    ))}
+
+                  <td className="px-4 py-4">
+                    <ul className="space-y-1">
+                      {pedido.itens.map((item, i) => (
+                        <li key={i} className="text-sm text-gray-700">
+                          {item.produto}{' '}
+                          <span className="text-gray-400 whitespace-nowrap">
+                            (
+                            {pedido.status === 'Em produção'
+                              ? `${item.produzido || 0}/${item.quantidade}kg`
+                              : `${item.quantidade}kg`}
+                            )
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </td>
-                  <td className="p-4">{formatarData(pedido.created_at)}</td>
-                  <td className="p-4">
+
+                  <td className="px-4 py-4 text-gray-600 whitespace-nowrap">
+                    {formatarData(pedido.created_at)}
+                  </td>
+
+                  <td className="px-4 py-4">
                     {pedido.data_entrega ? (
-                      <div>
-                        <div className="text-sm">{formatarDataSimples(pedido.data_entrega)}</div>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className="whitespace-nowrap text-gray-700">
+                          {formatarDataSimples(pedido.data_entrega)}
+                        </span>
                         {alertaEntrega && (
-                          <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${alertaEntrega.cor}`}>
+                          <span
+                            className={`whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium ${alertaEntrega.cor}`}
+                          >
                             {alertaEntrega.texto}
                           </span>
                         )}
                       </div>
                     ) : (
-                      <span className="text-gray-400 text-sm">-</span>
+                      <span className="text-gray-400">-</span>
                     )}
                   </td>
-                  <td className="p-4">
-                    <span className={`px-3 py-1 rounded-full text-sm ${corStatus(label)}`}>
+
+                  <td className="px-4 py-4">
+                    <span
+                      className={`whitespace-nowrap px-3 py-1 rounded-full text-xs font-medium ${corStatus(label)}`}
+                    >
                       {label}
                     </span>
                   </td>
-                  <td className="p-4">
-                    <div className="flex gap-3 flex-wrap">
+
+                  <td className="px-4 py-4">
+                    <div className="flex flex-col items-start gap-1.5 whitespace-nowrap text-sm">
                       <button onClick={() => abrirModalDetalhes(pedido)} className="text-gray-600 hover:underline">
                         👁 Detalhes
                       </button>
@@ -876,7 +895,10 @@ function Pedidos() {
                       )}
                     </div>
                   </td>
-                  <td className="p-4">{nfs.length > 0 ? nfs.join(', ') : '-'}</td>
+
+                  <td className="px-4 py-4 text-gray-700">
+                    {nfs.length > 0 ? nfs.join(', ') : '-'}
+                  </td>
                 </tr>
               )
             })}
