@@ -870,16 +870,53 @@ function Pedidos() {
       0
     )
 
+    // Usa somente o preço salvo em cada item do pedido.
+    function precoInformado(item) {
+      return (
+        item.preco != null &&
+        String(item.preco).trim() !== '' &&
+        Number.isFinite(Number(item.preco))
+      )
+    }
+
+    const todosPrecosInformados =
+      itens.length > 0 && itens.every(precoInformado)
+
+    const totalFinanceiro = itens.reduce(
+      (soma, item) =>
+        soma +
+        (precoInformado(item)
+          ? Number(item.preco) * Number(item.quantidade || 0)
+          : 0),
+      0
+    )
+
     const linhasItens = itens
-      .map(
-        (item, index) => `
+      .map((item, index) => {
+        const temPreco = precoInformado(item)
+
+        return `
           <tr>
             <td>${index + 1}</td>
             <td>${escaparHtml(item.produto)}</td>
             <td style="text-align:right">${escaparHtml(item.quantidade)} kg</td>
+            <td style="text-align:right; white-space:nowrap">
+              ${temPreco ? escaparHtml(formatarMoeda(item.preco)) : 'Não informado'}
+            </td>
+            <td style="text-align:right; white-space:nowrap">
+              ${
+                temPreco
+                  ? escaparHtml(
+                      formatarMoeda(
+                        Number(item.preco) * Number(item.quantidade || 0)
+                      )
+                    )
+                  : 'Não informado'
+              }
+            </td>
           </tr>
         `
-      )
+      })
       .join('')
 
     const entregas = todasEntregas(pedido)
@@ -1016,6 +1053,7 @@ function Pedidos() {
             text-transform: uppercase;
           }
           .linha-total td { font-weight: bold; background: #f9fafb; }
+          .aviso-preco { font-size: 12px; color: #92400e; margin-top: 8px; }
           .assinaturas { display: flex; justify-content: space-between; margin-top: 80px; }
           .assinatura-linha {
             width: 42%;
@@ -1074,7 +1112,9 @@ function Pedidos() {
               <tr>
                 <th style="width:40px">#</th>
                 <th>Produto</th>
-                <th style="text-align:right; width:120px">Quantidade</th>
+                <th style="text-align:right">Quantidade</th>
+                <th style="text-align:right">Preço/kg</th>
+                <th style="text-align:right">Total do item</th>
               </tr>
             </thead>
             <tbody>
@@ -1082,9 +1122,22 @@ function Pedidos() {
               <tr class="linha-total">
                 <td colspan="2">Total</td>
                 <td style="text-align:right">${escaparHtml(totalKg)} kg</td>
+                <td></td>
+                <td style="text-align:right; white-space:nowrap">
+                  ${
+                    todosPrecosInformados
+                      ? escaparHtml(formatarMoeda(totalFinanceiro))
+                      : 'Incompleto'
+                  }
+                </td>
               </tr>
             </tbody>
           </table>
+          ${
+            !todosPrecosInformados
+              ? '<p class="aviso-preco">Total incompleto: há item sem preço salvo no pedido.</p>'
+              : ''
+          }
         </div>
 
         ${blocoObs}
